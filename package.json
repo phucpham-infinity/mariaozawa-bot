@@ -6,7 +6,7 @@
   "scripts": {
     "serve": "ts-node-dev --respawn --transpile-only -r tsconfig-paths/register src/index.ts",
     "build": "tsc",
-    "start": "yarn kill-bot && sleep 2 && node -r module-alias/register dist/index.js",
+    "start": "node -r module-alias/register dist/index.js",
     "test": "jest",
     "test:watch": "jest --watch",
     "lint": "eslint src/**/*.ts",

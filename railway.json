@@ -4,7 +4,7 @@
     "builder": "NIXPACKS"
   },
   "deploy": {
-    "startCommand": "yarn build && node -r module-alias/register dist/index.js",
+    "startCommand": "yarn --frozen-lockfile && yarn build && node -r module-alias/register dist/index.js",
     "healthcheckPath": "/health",
     "healthcheckTimeout": 100,
     "restartPolicyType": "ON_FAILURE",
