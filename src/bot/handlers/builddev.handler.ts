@@ -118,7 +118,12 @@ export class BuildDevHandler extends BaseHandler {
         const deployDev = jobs.find(j => j.name === 'deploy-on-dev-k8s') || jobs.find(j => j.stage === 'deploy');
         if (buildDocker && buildDocker.status === 'success' && deployDev && deployDev.status === 'manual' && !deployTriggered) {
           await this.sendMessage(chatId, `▶️ Triggering deploy job \`deploy-on-dev-k8s\`...`);
-          await gitlabService.playJob(projectId, deployDev.id);
+          try {
+            await gitlabService.playJob(projectId, deployDev.id);
+            await this.sendMessage(chatId, `✅ Deploy job \`deploy-on-dev-k8s\` triggered successfully!`);
+          } catch (error) {
+            await this.sendMessage(chatId, `❌ Failed to trigger deploy job \`deploy-on-dev-k8s\`: ${error}`);
+          }
           deployTriggered = true;
         }
 
