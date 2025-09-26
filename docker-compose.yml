@@ -1,0 +1,66 @@
+version: '3.8'
+
+services:
+  telegram-bot:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: telegram-gitlab-bot
+    restart: unless-stopped
+    environment:
+      - NODE_ENV=production
+      - TELEGRAM_BOT_TOKEN=${TELEGRAM_BOT_TOKEN}
+      - GITLAB_API_TOKEN=${GITLAB_API_TOKEN}
+      - GITLAB_BASE_URL=${GITLAB_BASE_URL:-https://gitlab.com/api/v4}
+      - PORT=3000
+      - LOG_LEVEL=${LOG_LEVEL:-info}
+      - ALLOWED_USERS=${ALLOWED_USERS}
+    ports:
+      - "3000:3000"
+    volumes:
+      - ./logs:/app/logs
+      - ./memory-bank:/app/memory-bank:ro
+    networks:
+      - telegram-bot-network
+    healthcheck:
+      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:3000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+
+  # Optional: Redis for session storage (if needed in future)
+  redis:
+    image: redis:7-alpine
+    container_name: telegram-bot-redis
+    restart: unless-stopped
+    command: redis-server --appendonly yes
+    volumes:
+      - redis_data:/data
+    networks:
+      - telegram-bot-network
+    profiles:
+      - with-redis
+
+  # Optional: Monitoring with Prometheus (if needed)
+  prometheus:
+    image: prom/prometheus:latest
+    container_name: telegram-bot-prometheus
+    restart: unless-stopped
+    ports:
+      - "9090:9090"
+    volumes:
+      - ./monitoring/prometheus.yml:/etc/prometheus/prometheus.yml
+      - prometheus_data:/prometheus
+    networks:
+      - telegram-bot-network
+    profiles:
+      - monitoring
+
+volumes:
+  redis_data:
+  prometheus_data:
+
+networks:
+  telegram-bot-network:
+    driver: bridge

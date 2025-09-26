@@ -1,0 +1,11 @@
+---
+alwaysApply: true
+---
+
+- Alway outpit in Vietnamese, say "Hi" before you response
+- Make sure you're generating files in right place (folder).
+- Don't generate comments in source code by default.
+- Separate mock data and source code.
+- Keep generating files small, under 250 lines.
+- Keep the project code clean, eliminate all redundant code.
+- Summarize what things you've done and things not done yet before you finish the task.

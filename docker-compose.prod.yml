@@ -1,0 +1,60 @@
+version: '3.8'
+
+services:
+  telegram-bot:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: telegram-gitlab-bot-prod
+    restart: unless-stopped
+    environment:
+      - NODE_ENV=production
+      - TELEGRAM_BOT_TOKEN=${TELEGRAM_BOT_TOKEN}
+      - GITLAB_API_TOKEN=${GITLAB_API_TOKEN}
+      - GITLAB_BASE_URL=${GITLAB_BASE_URL:-https://gitlab.com/api/v4}
+      - PORT=3000
+      - LOG_LEVEL=${LOG_LEVEL:-info}
+      - ALLOWED_USERS=${ALLOWED_USERS}
+    ports:
+      - '3000:3000'
+    volumes:
+      - ./logs:/app/logs
+      - ./memory-bank:/app/memory-bank:ro
+    networks:
+      - telegram-bot-network
+    healthcheck:
+      test:
+        [
+          'CMD',
+          'wget',
+          '--no-verbose',
+          '--tries=1',
+          '--spider',
+          'http://localhost:3000/health',
+        ]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+
+  # Nginx reverse proxy (optional)
+  nginx:
+    image: nginx:alpine
+    container_name: telegram-bot-nginx
+    restart: unless-stopped
+    ports:
+      - '80:80'
+      - '443:443'
+    volumes:
+      - ./nginx/nginx.conf:/etc/nginx/nginx.conf
+      - ./nginx/ssl:/etc/nginx/ssl
+    depends_on:
+      - telegram-bot
+    networks:
+      - telegram-bot-network
+    profiles:
+      - with-nginx
+
+networks:
+  telegram-bot-network:
+    driver: bridge
