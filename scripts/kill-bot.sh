@@ -7,9 +7,18 @@ pkill -f "ts-node-dev.*src/index.ts" 2>/dev/null || true
 pkill -f "node.*dist/index.js" 2>/dev/null || true
 pkill -f "telegram-gitlab-bot" 2>/dev/null || true
 
-# Kill processes on common ports
+# Kill processes on common ports (using netstat instead of lsof)
 for port in 3000 3001 3002 3003 3004 3005; do
-  lsof -ti:$port | xargs kill -9 2>/dev/null || true
+  # Try netstat first (more common on servers)
+  if command -v netstat >/dev/null 2>&1; then
+    netstat -tlnp 2>/dev/null | grep ":$port " | awk '{print $7}' | cut -d'/' -f1 | xargs kill -9 2>/dev/null || true
+  # Fallback to fuser if available
+  elif command -v fuser >/dev/null 2>&1; then
+    fuser -k $port/tcp 2>/dev/null || true
+  # Last resort: try lsof if available
+  elif command -v lsof >/dev/null 2>&1; then
+    lsof -ti:$port | xargs kill -9 2>/dev/null || true
+  fi
 done
 
 # Clear any webhook
