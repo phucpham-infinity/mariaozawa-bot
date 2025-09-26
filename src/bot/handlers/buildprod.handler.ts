@@ -347,7 +347,13 @@ export class BuildProdHandler extends BaseHandler {
 
         if (buildDone && dockerDone && deployJobId && deployJob) {
           if (deployJob.status === 'manual' && !deployTriggered) {
-            await gitlabService.playJob(projectId, deployJobId);
+            await this.sendMessage(chatId, `▶️ Triggering deploy job \`deploy-on-prod-k8s\`...`);
+            try {
+              await gitlabService.playJob(projectId, deployJobId);
+              await this.sendMessage(chatId, `✅ Deploy job \`deploy-on-prod-k8s\` triggered successfully!`);
+            } catch (error) {
+              await this.sendMessage(chatId, `❌ Failed to trigger deploy job \`deploy-on-prod-k8s\`: ${error}`);
+            }
             deployTriggered = true;
           }
         }
