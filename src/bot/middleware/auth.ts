@@ -14,8 +14,6 @@ export function authMiddleware(
     return;
   }
 
-  
-
   logger.info(`Authorized user ${userId} (${username}) accessing bot`);
   next();
 }

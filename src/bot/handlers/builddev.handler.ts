@@ -18,9 +18,7 @@ export class BuildDevHandler extends BaseHandler {
       await this.sendMessage(chatId, '🔍 Fetching projects...');
       const projects = await gitlabService.getProjects();
       const target = projects.filter(
-        p => p.path.toLowerCase().includes('frontend') ||
-             p.name.toLowerCase().includes('frontend') ||
-             p.path.toLowerCase().includes('yourloot')
+        p => p.path.toLowerCase().includes('yl')
       );
 
       if (target.length === 0) {

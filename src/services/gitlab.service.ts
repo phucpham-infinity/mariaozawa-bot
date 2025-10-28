@@ -35,7 +35,7 @@ class GitLabService {
 
   async getProjects(): Promise<GitLabProject[]> {
     try {
-      const response = await this.api.get('/projects?membership=true&simple=true');
+      const response = await this.api.get('/projects?membership=true');      
       return response.data;
     } catch (error) {
       logger.error('Failed to fetch projects', error);
