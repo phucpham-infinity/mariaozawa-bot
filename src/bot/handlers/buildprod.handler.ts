@@ -40,10 +40,7 @@ export class BuildProdHandler extends BaseHandler {
 
       // Filter for yourloot/frontend or similar projects
       const targetProjects = projects.filter(
-        project =>
-          project.path.toLowerCase().includes('frontend') ||
-          project.name.toLowerCase().includes('frontend') ||
-          project.path.toLowerCase().includes('yourloot')
+        project => project.name.toLowerCase().includes('yl') 
       );
 
       if (targetProjects.length === 0) {

@@ -90,6 +90,7 @@ export class BuildDevHandler extends BaseHandler {
       const done = new Set(['success', 'failed', 'canceled', 'skipped', 'manual']);
       const notified = new Set<string>();
       let deployTriggered = false;
+      let deployMirrorTriggered = false;
       while (Date.now() < deadline) {
         const jobs = await gitlabService.getPipelineJobs(projectId, pipeline.id);
         const byName: { [name: string]: any } = {};
@@ -114,6 +115,7 @@ export class BuildDevHandler extends BaseHandler {
         // Auto trigger deploy-on-dev-k8s when build-docker succeeded
         const buildDocker = byName['build-docker'];
         const deployDev = jobs.find(j => j.name === 'deploy-on-dev-k8s') || jobs.find(j => j.stage === 'deploy');
+        const deployDevMirror = jobs.find(j => j.name === 'deploy-on-dev-mirror');
         if (buildDocker && buildDocker.status === 'success' && deployDev && deployDev.status === 'manual' && !deployTriggered) {
           await this.sendMessage(chatId, `▶️ Triggering deploy job \`deploy-on-dev-k8s\`...`);
           try {
@@ -123,6 +125,17 @@ export class BuildDevHandler extends BaseHandler {
             await this.sendMessage(chatId, `❌ Failed to trigger deploy job \`deploy-on-dev-k8s\`: ${error}`);
           }
           deployTriggered = true;
+        }
+
+        if (buildDocker && buildDocker.status === 'success' && deployDevMirror && deployDevMirror.status === 'manual' && !deployMirrorTriggered) {
+          await this.sendMessage(chatId, `▶️ Triggering deploy job \`deploy-on-dev-mirror\`...`);
+          try {
+            await gitlabService.playJob(projectId, deployDevMirror.id);
+            await this.sendMessage(chatId, `✅ Deploy job \`deploy-on-dev-mirror\` triggered successfully!`);
+          } catch (error) {
+            await this.sendMessage(chatId, `❌ Failed to trigger deploy job \`deploy-on-dev-mirror\`: ${error}`);
+          }
+          deployMirrorTriggered = true;
         }
 
         // Stop when deploy job finished
