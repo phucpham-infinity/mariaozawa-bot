@@ -384,7 +384,15 @@ export class BuildProdHandler extends BaseHandler {
                   !['success', 'running'].includes(j.status)
               );
 
-              if (deployTargetJobs.length > 0) {
+              const areBuildJobsFinished = !jobs.some(
+                j =>
+                  j.stage !== 'deploy' &&
+                  ['created', 'pending', 'running', 'failed', 'preparing'].includes(
+                    j.status
+                  )
+              );
+
+              if (deployTargetJobs.length > 0 && areBuildJobsFinished) {
                 await this.sendMessage(
                   chatId,
                   `🔄 Retry thành công! Đang trigger lại tất cả deploy jobs...`
@@ -447,7 +455,15 @@ export class BuildProdHandler extends BaseHandler {
             j.stage === 'deploy' && !['success', 'running'].includes(j.status)
         );
 
-        if (deployJobsToRun.length > 0) {
+        const areBuildJobsFinished = !jobs.some(
+          j =>
+            j.stage !== 'deploy' &&
+            ['created', 'pending', 'running', 'failed', 'preparing'].includes(
+              j.status
+            )
+        );
+
+        if (deployJobsToRun.length > 0 && areBuildJobsFinished) {
           const jobsToTrigger = deployJobsToRun.filter(
             j => !triggeredJobs.has(j.id)
           );
