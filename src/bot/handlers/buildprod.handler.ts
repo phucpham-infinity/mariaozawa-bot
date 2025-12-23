@@ -3,6 +3,13 @@ import { BaseHandler } from './base.handler';
 import gitlabService from '@/services/gitlab.service';
 import logger from '@/utils/logger';
 
+const JOB_NAMES = {
+  BUILD_DOCKER_PROD: 'build-docker-prod',
+  DEPLOY_PROD_K8S: 'deploy-on-prod-k8s',
+  BUILD_DOCKER_MIRROR: 'build-docker-mirror',
+  DEPLOY_PROD_MIRROR_K8S: 'deploy-on-prod-mirror-k8s',
+} as const;
+
 interface ReleaseInfo {
   branchName: string;
   version: number;
@@ -350,6 +357,11 @@ export class BuildProdHandler extends BaseHandler {
       const retriedJobs = new Set<number>();
       const retriedJobNames = new Set<string>();
       let deploySucceeded = false;
+      
+      const dependencyMap: Record<string, string> = {
+        [JOB_NAMES.BUILD_DOCKER_PROD]: JOB_NAMES.DEPLOY_PROD_K8S,
+        [JOB_NAMES.BUILD_DOCKER_MIRROR]: JOB_NAMES.DEPLOY_PROD_MIRROR_K8S,
+      };
 
       while (Date.now() < deadline) {
         const jobs = await gitlabService.getPipelineJobs(
@@ -378,49 +390,37 @@ export class BuildProdHandler extends BaseHandler {
             );
 
             if (retriedJobNames.has(job.name)) {
-              const deployTargetJobs = jobs.filter(
-                j =>
-                  j.stage === 'deploy' &&
-                  !['success', 'running'].includes(j.status)
-              );
+              retriedJobNames.delete(job.name);
+            }
 
-              const areBuildJobsFinished = !jobs.some(
-                j =>
-                  ['build', 'docker_build'].includes(j.stage) &&
-                  ['created', 'pending', 'running', 'failed', 'preparing'].includes(
-                    j.status
-                  )
-              );
-
-              if (deployTargetJobs.length > 0 && areBuildJobsFinished) {
+            // Check for downstream dependencies
+            const targetJobName = dependencyMap[job.name];
+            if (targetJobName) {
+              const targetJob = jobs.find(j => j.name === targetJobName);
+              // Trigger if target exists, hasn't been triggered, and is in a state that might need manual intervention (like manual/skipped) or just created
+              if (
+                targetJob &&
+                !triggeredJobs.has(targetJob.id) &&
+                ['manual', 'skipped', 'created', 'canceled'].includes(targetJob.status)
+              ) {
                 await this.sendMessage(
                   chatId,
-                  `🔄 Retry thành công! Đang trigger lại tất cả deploy jobs...`
+                  `▶️ Dependency met! Triggering \`${targetJob.name}\`...`
                 );
-
-                for (const job of deployTargetJobs) {
-                  triggeredJobs.delete(job.id);
+                try {
+                  await gitlabService.playJob(projectId, targetJob.id);
                   await this.sendMessage(
                     chatId,
-                    `▶️ Triggering deploy job \`${job.name}\`...`
+                    `✅ Triggered \`${targetJob.name}\` successfully!`
                   );
-                  try {
-                    await gitlabService.playJob(projectId, job.id);
-                    await this.sendMessage(
-                      chatId,
-                      `✅ Deploy job \`${job.name}\` triggered successfully!`
-                    );
-                    triggeredJobs.add(job.id);
-                  } catch (error) {
-                    await this.sendMessage(
-                      chatId,
-                      `❌ Failed to trigger deploy job \`${job.name}\`: ${error}`
-                    );
-                  }
+                  triggeredJobs.add(targetJob.id);
+                } catch (error) {
+                  await this.sendMessage(
+                    chatId,
+                    `❌ Failed to trigger \`${targetJob.name}\`: ${error}`
+                  );
                 }
               }
-
-              retriedJobNames.delete(job.name);
             }
           }
 
@@ -450,51 +450,7 @@ export class BuildProdHandler extends BaseHandler {
           }
         }
 
-        const deployJobsToRun = jobs.filter(
-          j =>
-            j.stage === 'deploy' && !['success', 'running'].includes(j.status)
-        );
 
-        const areBuildJobsFinished = !jobs.some(
-          j =>
-            ['build', 'docker_build'].includes(j.stage) &&
-            ['created', 'pending', 'running', 'failed', 'preparing'].includes(
-              j.status
-            )
-        );
-
-        if (deployJobsToRun.length > 0 && areBuildJobsFinished) {
-          const jobsToTrigger = deployJobsToRun.filter(
-            j => !triggeredJobs.has(j.id)
-          );
-
-          if (jobsToTrigger.length > 0) {
-            await this.sendMessage(
-              chatId,
-              `📋 Found ${deployJobsToRun.length} deploy job(s), triggering ${jobsToTrigger.length} job(s)...`
-            );
-
-            for (const job of jobsToTrigger) {
-              await this.sendMessage(
-                chatId,
-                `▶️ Triggering deploy job \`${job.name}\`...`
-              );
-              try {
-                await gitlabService.playJob(projectId, job.id);
-                await this.sendMessage(
-                  chatId,
-                  `✅ Deploy job \`${job.name}\` triggered successfully!`
-                );
-                triggeredJobs.add(job.id);
-              } catch (error) {
-                await this.sendMessage(
-                  chatId,
-                  `❌ Failed to trigger deploy job \`${job.name}\`: ${error}`
-                );
-              }
-            }
-          }
-        }
 
         const deployJobs = jobs.filter(
           j => j.stage === 'deploy' && doneStatuses.has(j.status)
