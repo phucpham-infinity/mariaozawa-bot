@@ -17,28 +17,40 @@ export class BuildDevHandler extends BaseHandler {
     try {
       await this.sendMessage(chatId, '🔍 Fetching projects...');
       const projects = await gitlabService.getProjects();
-      const target = projects.filter(
-        p => p.path.toLowerCase().includes('yl')
-      );
+      const target = projects.filter(p => p.path.toLowerCase().includes('yl'));
 
       if (target.length === 0) {
-        await this.sendError(chatId, 'No frontend projects found. Please check your GitLab access.');
+        await this.sendError(
+          chatId,
+          'No frontend projects found. Please check your GitLab access.'
+        );
         return;
       }
 
-      const keyboard = target.map(p => [{ text: `${p.name} (${p.path})`, callback_data: `select_project_dev_${p.id}` }]);
+      const keyboard = target.map(p => [
+        {
+          text: `${p.name} (${p.path})`,
+          callback_data: `select_project_dev_${p.id}`,
+        },
+      ]);
       keyboard.push([{ text: '❌ Cancel', callback_data: 'cancel_build_dev' }]);
 
-      await this.bot.sendMessage(chatId, '📋 *Select a frontend project to build dev:*', {
-        parse_mode: 'Markdown',
-        reply_markup: { inline_keyboard: keyboard },
-      });
+      await this.bot.sendMessage(
+        chatId,
+        '📋 *Select a frontend project to build dev:*',
+        {
+          parse_mode: 'Markdown',
+          reply_markup: { inline_keyboard: keyboard },
+        }
+      );
     } catch {
       await this.sendError(chatId, 'Failed to fetch projects');
     }
   }
 
-  private async handleCallback(query: TelegramBot.CallbackQuery): Promise<void> {
+  private async handleCallback(
+    query: TelegramBot.CallbackQuery
+  ): Promise<void> {
     const chatId = query.message?.chat.id;
     const data = query.data;
     if (!chatId || !data) return;
@@ -55,10 +67,17 @@ export class BuildDevHandler extends BaseHandler {
       }
 
       if (data.startsWith('select_project_dev_')) {
-        await this.handleProjectSelectionDev(chatId, data, query.message?.message_id);
+        await this.handleProjectSelectionDev(
+          chatId,
+          data,
+          query.message?.message_id
+        );
       }
     } catch {
-      await this.sendError(chatId, 'An error occurred while processing your request');
+      await this.sendError(
+        chatId,
+        'An error occurred while processing your request'
+      );
     }
   }
 
@@ -69,11 +88,14 @@ export class BuildDevHandler extends BaseHandler {
   ): Promise<void> {
     const projectId = parseInt(data.replace('select_project_dev_', ''), 10);
     try {
-      await this.bot.editMessageText(`🚀 Triggering pipeline for project ${projectId} on \`dev\`...`, {
-        chat_id: chatId,
-        message_id: messageId,
-        parse_mode: 'Markdown',
-      });
+      await this.bot.editMessageText(
+        `🚀 Triggering pipeline for project ${projectId} on \`dev\`...`,
+        {
+          chat_id: chatId,
+          message_id: messageId,
+          parse_mode: 'Markdown',
+        }
+      );
 
       const pipeline = await gitlabService.triggerPipeline(projectId, 'dev');
       await this.sendMessage(
@@ -81,22 +103,34 @@ export class BuildDevHandler extends BaseHandler {
         `✅ Pipeline created: #${pipeline.id} on \`${pipeline.ref}\`\n🔗 ${pipeline.web_url}`,
         {
           reply_markup: {
-            inline_keyboard: [[{ text: '🛑 Cancel pipeline', callback_data: `cancel_pipeline_${projectId}_${pipeline.id}` }]],
+            inline_keyboard: [
+              [
+                {
+                  text: '🛑 Cancel pipeline',
+                  callback_data: `cancel_pipeline_${projectId}_${pipeline.id}`,
+                },
+              ],
+            ],
           },
         }
       );
 
       const deadline = Date.now() + 20 * 60 * 1000;
-      const done = new Set(['success', 'failed', 'canceled', 'skipped', 'manual']);
+      const done = new Set([
+        'success',
+        'failed',
+        'canceled',
+        'skipped',
+        'manual',
+      ]);
       const notified = new Set<string>();
-      let deployTriggered = false;
-      let deployMirrorTriggered = false;
+      const triggeredJobs = new Set<number>();
       while (Date.now() < deadline) {
-        const jobs = await gitlabService.getPipelineJobs(projectId, pipeline.id);
-        const byName: { [name: string]: any } = {};
-        for (const job of jobs) byName[job.name] = job;
+        const jobs = await gitlabService.getPipelineJobs(
+          projectId,
+          pipeline.id
+        );
 
-        // Notify once per job when success
         for (const job of jobs) {
           if (job.status === 'success' && !notified.has(job.name)) {
             notified.add(job.name);
@@ -105,45 +139,75 @@ export class BuildDevHandler extends BaseHandler {
               `ℹ️ Job \`${job.name}\` finished with status: \`success\`\n🔗 ${job.web_url}`,
               {
                 reply_markup: {
-                  inline_keyboard: [[{ text: '🛑 Cancel pipeline', callback_data: `cancel_pipeline_${projectId}_${pipeline.id}` }]],
+                  inline_keyboard: [
+                    [
+                      {
+                        text: '🛑 Cancel pipeline',
+                        callback_data: `cancel_pipeline_${projectId}_${pipeline.id}`,
+                      },
+                    ],
+                  ],
                 },
               }
             );
           }
         }
 
-        // Auto trigger deploy-on-dev-k8s when build-docker succeeded
-        const buildDocker = byName['build-docker'];
-        const deployDev = jobs.find(j => j.name === 'deploy-on-dev-k8s') || jobs.find(j => j.stage === 'deploy');
-        const deployDevMirror = jobs.find(j => j.name === 'deploy-on-dev-mirror');
-        if (buildDocker && buildDocker.status === 'success' && deployDev && deployDev.status === 'manual' && !deployTriggered) {
-          await this.sendMessage(chatId, `▶️ Triggering deploy job \`deploy-on-dev-k8s\`...`);
-          try {
-            await gitlabService.playJob(projectId, deployDev.id);
-            await this.sendMessage(chatId, `✅ Deploy job \`deploy-on-dev-k8s\` triggered successfully!`);
-          } catch (error) {
-            await this.sendMessage(chatId, `❌ Failed to trigger deploy job \`deploy-on-dev-k8s\`: ${error}`);
+        const buildDocker =
+          jobs.find(
+            j => j.stage === 'build' && j.name.toLowerCase().includes('docker')
+          ) ||
+          jobs.find(
+            j =>
+              j.name.toLowerCase().includes('build') &&
+              j.name.toLowerCase().includes('docker')
+          );
+
+        const manualJobs = jobs.filter(j => j.status === 'manual');
+
+        if (buildDocker && buildDocker.status === 'success') {
+          for (const manualJob of manualJobs) {
+            if (!triggeredJobs.has(manualJob.id)) {
+              await this.sendMessage(
+                chatId,
+                `▶️ Triggering manual job \`${manualJob.name}\`...`
+              );
+              try {
+                await gitlabService.playJob(projectId, manualJob.id);
+                await this.sendMessage(
+                  chatId,
+                  `✅ Manual job \`${manualJob.name}\` triggered successfully!`
+                );
+                triggeredJobs.add(manualJob.id);
+              } catch (error) {
+                await this.sendMessage(
+                  chatId,
+                  `❌ Failed to trigger manual job \`${manualJob.name}\`: ${error}`
+                );
+              }
+            }
           }
-          deployTriggered = true;
         }
 
-        if (buildDocker && buildDocker.status === 'success' && deployDevMirror && deployDevMirror.status === 'manual' && !deployMirrorTriggered) {
-          await this.sendMessage(chatId, `▶️ Triggering deploy job \`deploy-on-dev-mirror\`...`);
-          try {
-            await gitlabService.playJob(projectId, deployDevMirror.id);
-            await this.sendMessage(chatId, `✅ Deploy job \`deploy-on-dev-mirror\` triggered successfully!`);
-          } catch (error) {
-            await this.sendMessage(chatId, `❌ Failed to trigger deploy job \`deploy-on-dev-mirror\`: ${error}`);
-          }
-          deployMirrorTriggered = true;
-        }
+        const deployJobs = jobs.filter(
+          j => j.stage === 'deploy' && done.has(j.status)
+        );
 
-        // Stop when deploy job finished
-        if (deployDev && done.has(deployDev.status)) {
-          if (deployDev.status === 'success') {
-            await this.sendMessage(chatId, `🎉 Deploy thành công trên \`dev\`\n🔗 ${deployDev.web_url}`);
-          } else if (['failed', 'canceled', 'skipped'].includes(deployDev.status)) {
-            await this.sendMessage(chatId, `❌ Deploy thất bại trên \`dev\` (status: \`${deployDev.status}\`)\n🔗 ${deployDev.web_url}`);
+        if (deployJobs.length > 0) {
+          for (const deployJob of deployJobs) {
+            if (deployJob.status === 'success') {
+              await this.sendMessage(
+                chatId,
+                `🎉 Deploy thành công: \`${deployJob.name}\`\n🔗 ${deployJob.web_url}`
+              );
+            } else if (
+              ['failed', 'canceled', 'skipped'].includes(deployJob.status)
+            ) {
+              await this.sendMessage(
+                chatId,
+                `❌ Deploy thất bại: \`${deployJob.name}\` (status: \`${deployJob.status}\`)\n🔗 ${deployJob.web_url}`
+              );
+            }
           }
           break;
         }
@@ -151,9 +215,10 @@ export class BuildDevHandler extends BaseHandler {
         await new Promise(r => setTimeout(r, 5000));
       }
     } catch {
-      await this.sendError(chatId, `Failed to trigger pipeline for project ${projectId}`);
+      await this.sendError(
+        chatId,
+        `Failed to trigger pipeline for project ${projectId}`
+      );
     }
   }
 }
-
-
