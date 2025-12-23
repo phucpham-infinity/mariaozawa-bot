@@ -175,6 +175,21 @@ class GitLabService {
     }
   }
 
+  async retryJob(projectId: number, jobId: number): Promise<GitLabJob> {
+    try {
+      const response = await this.api.post(
+        `/projects/${projectId}/jobs/${jobId}/retry`
+      );
+      return response.data;
+    } catch (error) {
+      logger.error(
+        `Failed to retry job ${jobId} in project ${projectId}`,
+        error
+      );
+      throw new Error(`Unable to retry job ${jobId}`);
+    }
+  }
+
   async getPipelines(projectId: number, limit = 10): Promise<GitLabPipeline[]> {
     try {
       const response = await this.api.get(

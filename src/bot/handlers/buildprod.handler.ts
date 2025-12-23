@@ -39,8 +39,8 @@ export class BuildProdHandler extends BaseHandler {
       const projects = await gitlabService.getProjects();
 
       // Filter for yourloot/frontend or similar projects
-      const targetProjects = projects.filter(
-        project => project.name.toLowerCase().includes('yl') 
+      const targetProjects = projects.filter(project =>
+        project.name.toLowerCase().includes('yl')
       );
 
       if (targetProjects.length === 0) {
@@ -111,7 +111,10 @@ export class BuildProdHandler extends BaseHandler {
           await gitlabService.cancelPipeline(projectId, pipelineId);
           await this.sendSuccess(chatId, `Pipeline #${pipelineId} canceled`);
         } catch (e) {
-          await this.sendError(chatId, `Failed to cancel pipeline #${pipelineId}`);
+          await this.sendError(
+            chatId,
+            `Failed to cancel pipeline #${pipelineId}`
+          );
         }
         return;
       }
@@ -313,68 +316,174 @@ export class BuildProdHandler extends BaseHandler {
         }
       );
 
-      const pipeline = await gitlabService.triggerPipeline(projectId, branchName);
+      const pipeline = await gitlabService.triggerPipeline(
+        projectId,
+        branchName
+      );
       await this.sendMessage(
         chatId,
         `✅ Pipeline created: #${pipeline.id} on \`${pipeline.ref}\`\n🔗 ${pipeline.web_url}`,
         {
           reply_markup: {
-            inline_keyboard: [[{ text: '🛑 Cancel pipeline', callback_data: `cancel_pipeline_${projectId}_${pipeline.id}` }]],
+            inline_keyboard: [
+              [
+                {
+                  text: '🛑 Cancel pipeline',
+                  callback_data: `cancel_pipeline_${projectId}_${pipeline.id}`,
+                },
+              ],
+            ],
           },
         }
       );
 
-      // Wait for build and docker_build to finish, then trigger deploy
-      const deadline = Date.now() + 20 * 60 * 1000; // 20 minutes timeout
-      const doneStatuses = new Set(['success', 'failed', 'canceled', 'skipped', 'manual']);
-      let deployJobId: number | null = null;
-      let deployTriggered = false;
-      let deploySucceeded = false;
+      const deadline = Date.now() + 20 * 60 * 1000;
+      const doneStatuses = new Set([
+        'success',
+        'failed',
+        'canceled',
+        'skipped',
+        'manual',
+      ]);
       const notifiedJobs = new Set<string>();
+      const triggeredJobs = new Set<number>();
+      const retriedJobs = new Set<number>();
+      const retriedJobNames = new Set<string>();
+      let deploySucceeded = false;
 
       while (Date.now() < deadline) {
-        const jobs = await gitlabService.getPipelineJobs(projectId, pipeline.id);
-        const byName: { [name: string]: any } = {};
-        for (const job of jobs) byName[job.name] = job;
+        const jobs = await gitlabService.getPipelineJobs(
+          projectId,
+          pipeline.id
+        );
 
-        const buildDone = byName['build_prod'] && doneStatuses.has(byName['build_prod'].status);
-        const dockerDone = byName['build-docker'] && doneStatuses.has(byName['build-docker'].status);
-        const deployJob = jobs.find(j => j.name === 'deploy-on-prod-k8s') || jobs.find(j => j.stage === 'deploy');
-        if (deployJob) deployJobId = deployJob.id;
-
-        if (buildDone && dockerDone && deployJobId && deployJob) {
-          if (deployJob.status === 'manual' && !deployTriggered) {
-            await this.sendMessage(chatId, `▶️ Triggering deploy job \`deploy-on-prod-k8s\`...`);
-            try {
-              await gitlabService.playJob(projectId, deployJobId);
-              await this.sendMessage(chatId, `✅ Deploy job \`deploy-on-prod-k8s\` triggered successfully!`);
-            } catch (error) {
-              await this.sendMessage(chatId, `❌ Failed to trigger deploy job \`deploy-on-prod-k8s\`: ${error}`);
-            }
-            deployTriggered = true;
-          }
-        }
-
-        // Notify exactly once when each watched build job succeeds
-        for (const name of ['build_prod', 'build-docker']) {
-          const job = byName[name];
-          if (!job) continue;
-          if (job.status === 'success' && !notifiedJobs.has(name)) {
-            notifiedJobs.add(name);
+        for (const job of jobs) {
+          if (job.status === 'success' && !notifiedJobs.has(job.name)) {
+            notifiedJobs.add(job.name);
             await this.sendMessage(
               chatId,
               `ℹ️ Job \`${job.name}\` finished with status: \`success\`\n🔗 ${job.web_url}`,
               {
                 reply_markup: {
-                  inline_keyboard: [[{ text: '🛑 Cancel pipeline', callback_data: `cancel_pipeline_${projectId}_${pipeline.id}` }]],
+                  inline_keyboard: [
+                    [
+                      {
+                        text: '🛑 Cancel pipeline',
+                        callback_data: `cancel_pipeline_${projectId}_${pipeline.id}`,
+                      },
+                    ],
+                  ],
                 },
               }
             );
+
+            if (retriedJobNames.has(job.name)) {
+              const deployManualJobs = jobs.filter(
+                j => j.stage === 'deploy' && j.status === 'manual'
+              );
+
+              if (deployManualJobs.length > 0) {
+                await this.sendMessage(
+                  chatId,
+                  `🔄 Retry thành công! Đang trigger lại tất cả deploy jobs...`
+                );
+
+                for (const manualJob of deployManualJobs) {
+                  triggeredJobs.delete(manualJob.id);
+                  await this.sendMessage(
+                    chatId,
+                    `▶️ Triggering deploy job \`${manualJob.name}\`...`
+                  );
+                  try {
+                    await gitlabService.playJob(projectId, manualJob.id);
+                    await this.sendMessage(
+                      chatId,
+                      `✅ Deploy job \`${manualJob.name}\` triggered successfully!`
+                    );
+                    triggeredJobs.add(manualJob.id);
+                  } catch (error) {
+                    await this.sendMessage(
+                      chatId,
+                      `❌ Failed to trigger deploy job \`${manualJob.name}\`: ${error}`
+                    );
+                  }
+                }
+              }
+
+              retriedJobNames.delete(job.name);
+            }
+          }
+
+          if (
+            job.status === 'failed' &&
+            !retriedJobs.has(job.id) &&
+            job.stage !== 'deploy'
+          ) {
+            await this.sendMessage(
+              chatId,
+              `🔄 Retrying failed job \`${job.name}\`...`
+            );
+            try {
+              await gitlabService.retryJob(projectId, job.id);
+              retriedJobs.add(job.id);
+              retriedJobNames.add(job.name);
+              await this.sendMessage(
+                chatId,
+                `✅ Job \`${job.name}\` retried successfully!`
+              );
+            } catch (error) {
+              await this.sendMessage(
+                chatId,
+                `❌ Failed to retry job \`${job.name}\`: ${error}`
+              );
+            }
           }
         }
 
-        if (deployJob && doneStatuses.has(deployJob.status)) {
-          if (deployJob.name === 'deploy-on-prod-k8s' && deployJob.status === 'success') {
+        const deployManualJobs = jobs.filter(
+          j => j.stage === 'deploy' && j.status === 'manual'
+        );
+
+        if (deployManualJobs.length > 0) {
+          const jobsToTrigger = deployManualJobs.filter(
+            j => !triggeredJobs.has(j.id)
+          );
+
+          if (jobsToTrigger.length > 0) {
+            await this.sendMessage(
+              chatId,
+              `📋 Found ${deployManualJobs.length} deploy manual job(s), triggering ${jobsToTrigger.length} job(s)...`
+            );
+
+            for (const manualJob of jobsToTrigger) {
+              await this.sendMessage(
+                chatId,
+                `▶️ Triggering deploy job \`${manualJob.name}\`...`
+              );
+              try {
+                await gitlabService.playJob(projectId, manualJob.id);
+                await this.sendMessage(
+                  chatId,
+                  `✅ Deploy job \`${manualJob.name}\` triggered successfully!`
+                );
+                triggeredJobs.add(manualJob.id);
+              } catch (error) {
+                await this.sendMessage(
+                  chatId,
+                  `❌ Failed to trigger deploy job \`${manualJob.name}\`: ${error}`
+                );
+              }
+            }
+          }
+        }
+
+        const deployJobs = jobs.filter(
+          j => j.stage === 'deploy' && doneStatuses.has(j.status)
+        );
+
+        if (deployJobs.length > 0) {
+          const successDeploys = deployJobs.filter(j => j.status === 'success');
+          if (successDeploys.length > 0) {
             deploySucceeded = true;
           }
           break;
@@ -401,25 +510,40 @@ export class BuildProdHandler extends BaseHandler {
           }
         );
 
-        // Send a final completion message with deploy job link (deploy-on-prod-k8s) if available
         try {
-          const jobs = await gitlabService.getPipelineJobs(projectId, pipeline.id);
-          const deployJob = jobs.find(j => j.name === 'deploy-on-prod-k8s') || jobs.find(j => j.stage === 'deploy');
-          const link = deployJob?.web_url || pipeline.web_url;
-          await this.sendMessage(
-            chatId,
-            `🎉 Deploy thành công cho \`${branchName}\`\n🔗 ${link}\n✅ Task đã hoàn tất.`
+          const jobs = await gitlabService.getPipelineJobs(
+            projectId,
+            pipeline.id
           );
-        } catch {}
-      } else {
-        // If deploy finished but not successful, notify failure with job link
-        try {
-          const jobs = await gitlabService.getPipelineJobs(projectId, pipeline.id);
-          const deployJob = jobs.find(j => j.name === 'deploy-on-prod-k8s') || jobs.find(j => j.stage === 'deploy');
-          if (deployJob && ['failed', 'canceled', 'skipped'].includes(deployJob.status)) {
+          const deployJobs = jobs.filter(j => j.stage === 'deploy');
+          const successDeploys = deployJobs.filter(j => j.status === 'success');
+
+          if (successDeploys.length > 0) {
+            const links = successDeploys
+              .map(j => `\`${j.name}\`: ${j.web_url}`)
+              .join('\n');
             await this.sendMessage(
               chatId,
-              `❌ Deploy thất bại cho \`${branchName}\` (status: \`${deployJob.status}\`)\n🔗 ${deployJob.web_url}`
+              `🎉 Deploy thành công cho \`${branchName}\`\n${links}\n✅ Task đã hoàn tất.`
+            );
+          }
+        } catch {}
+      } else {
+        try {
+          const jobs = await gitlabService.getPipelineJobs(
+            projectId,
+            pipeline.id
+          );
+          const failedDeploys = jobs.filter(
+            j =>
+              j.stage === 'deploy' &&
+              ['failed', 'canceled', 'skipped'].includes(j.status)
+          );
+
+          for (const deployJob of failedDeploys) {
+            await this.sendMessage(
+              chatId,
+              `❌ Deploy thất bại: \`${deployJob.name}\` (status: \`${deployJob.status}\`)\n🔗 ${deployJob.web_url}`
             );
           }
         } catch {}
