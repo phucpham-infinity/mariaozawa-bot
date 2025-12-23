@@ -378,33 +378,35 @@ export class BuildProdHandler extends BaseHandler {
             );
 
             if (retriedJobNames.has(job.name)) {
-              const deployManualJobs = jobs.filter(
-                j => j.stage === 'deploy' && j.status === 'manual'
+              const deployTargetJobs = jobs.filter(
+                j =>
+                  j.stage === 'deploy' &&
+                  !['success', 'running'].includes(j.status)
               );
 
-              if (deployManualJobs.length > 0) {
+              if (deployTargetJobs.length > 0) {
                 await this.sendMessage(
                   chatId,
                   `🔄 Retry thành công! Đang trigger lại tất cả deploy jobs...`
                 );
 
-                for (const manualJob of deployManualJobs) {
-                  triggeredJobs.delete(manualJob.id);
+                for (const job of deployTargetJobs) {
+                  triggeredJobs.delete(job.id);
                   await this.sendMessage(
                     chatId,
-                    `▶️ Triggering deploy job \`${manualJob.name}\`...`
+                    `▶️ Triggering deploy job \`${job.name}\`...`
                   );
                   try {
-                    await gitlabService.playJob(projectId, manualJob.id);
+                    await gitlabService.playJob(projectId, job.id);
                     await this.sendMessage(
                       chatId,
-                      `✅ Deploy job \`${manualJob.name}\` triggered successfully!`
+                      `✅ Deploy job \`${job.name}\` triggered successfully!`
                     );
-                    triggeredJobs.add(manualJob.id);
+                    triggeredJobs.add(job.id);
                   } catch (error) {
                     await this.sendMessage(
                       chatId,
-                      `❌ Failed to trigger deploy job \`${manualJob.name}\`: ${error}`
+                      `❌ Failed to trigger deploy job \`${job.name}\`: ${error}`
                     );
                   }
                 }
@@ -440,37 +442,38 @@ export class BuildProdHandler extends BaseHandler {
           }
         }
 
-        const deployManualJobs = jobs.filter(
-          j => j.stage === 'deploy' && j.status === 'manual'
+        const deployJobsToRun = jobs.filter(
+          j =>
+            j.stage === 'deploy' && !['success', 'running'].includes(j.status)
         );
 
-        if (deployManualJobs.length > 0) {
-          const jobsToTrigger = deployManualJobs.filter(
+        if (deployJobsToRun.length > 0) {
+          const jobsToTrigger = deployJobsToRun.filter(
             j => !triggeredJobs.has(j.id)
           );
 
           if (jobsToTrigger.length > 0) {
             await this.sendMessage(
               chatId,
-              `📋 Found ${deployManualJobs.length} deploy manual job(s), triggering ${jobsToTrigger.length} job(s)...`
+              `📋 Found ${deployJobsToRun.length} deploy job(s), triggering ${jobsToTrigger.length} job(s)...`
             );
 
-            for (const manualJob of jobsToTrigger) {
+            for (const job of jobsToTrigger) {
               await this.sendMessage(
                 chatId,
-                `▶️ Triggering deploy job \`${manualJob.name}\`...`
+                `▶️ Triggering deploy job \`${job.name}\`...`
               );
               try {
-                await gitlabService.playJob(projectId, manualJob.id);
+                await gitlabService.playJob(projectId, job.id);
                 await this.sendMessage(
                   chatId,
-                  `✅ Deploy job \`${manualJob.name}\` triggered successfully!`
+                  `✅ Deploy job \`${job.name}\` triggered successfully!`
                 );
-                triggeredJobs.add(manualJob.id);
+                triggeredJobs.add(job.id);
               } catch (error) {
                 await this.sendMessage(
                   chatId,
-                  `❌ Failed to trigger deploy job \`${manualJob.name}\`: ${error}`
+                  `❌ Failed to trigger deploy job \`${job.name}\`: ${error}`
                 );
               }
             }
