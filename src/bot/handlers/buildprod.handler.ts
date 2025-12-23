@@ -386,7 +386,7 @@ export class BuildProdHandler extends BaseHandler {
 
               const areBuildJobsFinished = !jobs.some(
                 j =>
-                  j.stage !== 'deploy' &&
+                  ['build', 'docker_build'].includes(j.stage) &&
                   ['created', 'pending', 'running', 'failed', 'preparing'].includes(
                     j.status
                   )
@@ -457,7 +457,7 @@ export class BuildProdHandler extends BaseHandler {
 
         const areBuildJobsFinished = !jobs.some(
           j =>
-            j.stage !== 'deploy' &&
+            ['build', 'docker_build'].includes(j.stage) &&
             ['created', 'pending', 'running', 'failed', 'preparing'].includes(
               j.status
             )
