@@ -357,21 +357,82 @@ export class BuildProdHandler extends BaseHandler {
       const retriedJobs = new Set<number>();
       const retriedJobNames = new Set<string>();
       let deploySucceeded = false;
-      
-      const dependencyMap: Record<string, string> = {
-        [JOB_NAMES.BUILD_DOCKER_PROD]: JOB_NAMES.DEPLOY_PROD_K8S,
-        [JOB_NAMES.BUILD_DOCKER_MIRROR]: JOB_NAMES.DEPLOY_PROD_MIRROR_K8S,
+
+      const dependencyMap: Record<string, string[]> = {
+        [JOB_NAMES.BUILD_DOCKER_PROD]: [JOB_NAMES.DEPLOY_PROD_K8S],
+        [JOB_NAMES.BUILD_DOCKER_MIRROR]: [JOB_NAMES.DEPLOY_PROD_MIRROR_K8S],
       };
 
+      console.log(
+        'Dependency map initialized:',
+        JSON.stringify(dependencyMap, null, 2)
+      );
+
       while (Date.now() < deadline) {
-        const jobs = await gitlabService.getPipelineJobs(
-          projectId,
-          pipeline.id
+        let jobs: any[] = [];
+        let fetchAttempts = 0;
+        const maxFetchRetries = 3;
+
+        while (fetchAttempts < maxFetchRetries) {
+          try {
+            jobs = await gitlabService.getPipelineJobs(projectId, pipeline.id);
+            break;
+          } catch (error: any) {
+            fetchAttempts++;
+            const isNetworkError =
+              error?.code === 'ECONNRESET' ||
+              error?.message?.includes('socket hang up') ||
+              error?.message?.includes('timeout');
+
+            if (fetchAttempts >= maxFetchRetries) {
+              logger.error(
+                `[Pipeline ${pipeline.id}] Failed to fetch jobs after ${maxFetchRetries} attempts:`,
+                error
+              );
+              await this.sendMessage(
+                chatId,
+                `⚠️ Unable to fetch jobs from GitLab after ${maxFetchRetries} attempts. Retrying in 5 seconds...`
+              );
+              await new Promise(r => setTimeout(r, 5000));
+              continue;
+            }
+
+            if (isNetworkError) {
+              console.log(
+                `[Pipeline ${pipeline.id}] Network error fetching jobs (attempt ${fetchAttempts}/${maxFetchRetries}), retrying...`
+              );
+              await new Promise(r => setTimeout(r, 2000 * fetchAttempts));
+            } else {
+              throw error;
+            }
+          }
+        }
+
+        if (jobs.length === 0) {
+          console.log(
+            `[Pipeline ${pipeline.id}] No jobs fetched, waiting before retry...`
+          );
+          await new Promise(r => setTimeout(r, 5000));
+          continue;
+        }
+
+        console.log(`[Pipeline ${pipeline.id}] Total jobs: ${jobs.length}`);
+        console.log(
+          `[Pipeline ${pipeline.id}] Jobs status:`,
+          jobs.map(j => ({
+            name: j.name,
+            status: j.status,
+            stage: j.stage,
+            id: j.id,
+          }))
         );
 
         for (const job of jobs) {
           if (job.status === 'success' && !notifiedJobs.has(job.name)) {
             notifiedJobs.add(job.name);
+            console.log(
+              `[Pipeline ${pipeline.id}] Job ${job.name} succeeded, notifying user`
+            );
             await this.sendMessage(
               chatId,
               `ℹ️ Job \`${job.name}\` finished with status: \`success\`\n🔗 ${job.web_url}`,
@@ -394,34 +455,95 @@ export class BuildProdHandler extends BaseHandler {
             }
           }
 
-          // Check for downstream dependencies (Independent of notification)
           if (job.status === 'success') {
-            const targetJobName = dependencyMap[job.name];
-            if (targetJobName) {
+            console.log(
+              `[Pipeline ${pipeline.id}] Checking dependencies for job: ${job.name}`
+            );
+
+            const targetJobNames = dependencyMap[job.name];
+
+            if (!targetJobNames || targetJobNames.length === 0) {
+              console.log(
+                `[Pipeline ${pipeline.id}] No dependency mapping found for job: ${job.name}`
+              );
+              continue;
+            }
+
+            console.log(
+              `[Pipeline ${pipeline.id}] Found dependency mapping: ${job.name} -> ${targetJobNames.join(', ')}`
+            );
+
+            for (const targetJobName of targetJobNames) {
               const targetJob = jobs.find(j => j.name === targetJobName);
-              // Trigger if target exists, hasn't been triggered, and is in a state that allows triggering
-              if (
-                targetJob &&
-                !triggeredJobs.has(targetJob.id) &&
-                ['manual', 'skipped', 'created', 'canceled'].includes(targetJob.status)
-              ) {
+
+              if (!targetJob) {
+                logger.warn(
+                  `[Pipeline ${pipeline.id}] Target job '${targetJobName}' not found in jobs list`
+                );
+                console.log(
+                  `[Pipeline ${pipeline.id}] Available job names:`,
+                  jobs.map(j => j.name)
+                );
+                continue;
+              }
+
+              console.log(`[Pipeline ${pipeline.id}] Target job found:`, {
+                name: targetJob.name,
+                id: targetJob.id,
+                status: targetJob.status,
+                stage: targetJob.stage,
+                alreadyTriggered: triggeredJobs.has(targetJob.id),
+              });
+
+              if (triggeredJobs.has(targetJob.id)) {
+                console.log(
+                  `[Pipeline ${pipeline.id}] Job ${targetJob.name} already triggered, skipping`
+                );
+                continue;
+              }
+
+              const triggerableStatuses = [
+                'manual',
+                'skipped',
+                'created',
+                'canceled',
+                'pending',
+                'waiting_for_resource',
+              ];
+
+              if (!triggerableStatuses.includes(targetJob.status)) {
+                console.log(
+                  `[Pipeline ${pipeline.id}] Cannot trigger ${targetJob.name}: status '${targetJob.status}' not in triggerable list`
+                );
+                continue;
+              }
+
+              logger.info(
+                `[Pipeline ${pipeline.id}] Triggering ${targetJob.name} (id: ${targetJob.id}) after ${job.name} succeeded`
+              );
+              await this.sendMessage(
+                chatId,
+                `▶️ Dependency met! Triggering \`${targetJob.name}\`...`
+              );
+              try {
+                await gitlabService.playJob(projectId, targetJob.id);
+                logger.info(
+                  `[Pipeline ${pipeline.id}] Successfully triggered ${targetJob.name}`
+                );
                 await this.sendMessage(
                   chatId,
-                  `▶️ Dependency met! Triggering \`${targetJob.name}\`...`
+                  `✅ Triggered \`${targetJob.name}\` successfully!`
                 );
-                try {
-                  await gitlabService.playJob(projectId, targetJob.id);
-                  await this.sendMessage(
-                    chatId,
-                    `✅ Triggered \`${targetJob.name}\` successfully!`
-                  );
-                  triggeredJobs.add(targetJob.id);
-                } catch (error) {
-                  await this.sendMessage(
-                    chatId,
-                    `❌ Failed to trigger \`${targetJob.name}\`: ${error}`
-                  );
-                }
+                triggeredJobs.add(targetJob.id);
+              } catch (error) {
+                logger.error(
+                  `[Pipeline ${pipeline.id}] Failed to trigger ${targetJob.name}:`,
+                  error
+                );
+                await this.sendMessage(
+                  chatId,
+                  `❌ Failed to trigger \`${targetJob.name}\`: ${error}`
+                );
               }
             }
           }
@@ -452,17 +574,32 @@ export class BuildProdHandler extends BaseHandler {
           }
         }
 
-
-
+        const requiredDeployJobs: string[] = [
+          JOB_NAMES.DEPLOY_PROD_K8S,
+          JOB_NAMES.DEPLOY_PROD_MIRROR_K8S,
+        ];
         const deployJobs = jobs.filter(
-          j => j.stage === 'deploy' && doneStatuses.has(j.status)
+          j =>
+            j.stage === 'deploy' &&
+            requiredDeployJobs.includes(j.name) &&
+            doneStatuses.has(j.status)
         );
 
-        if (deployJobs.length > 0) {
+        console.log(
+          `[Pipeline ${pipeline.id}] Deploy jobs status:`,
+          jobs
+            .filter(j => requiredDeployJobs.includes(j.name))
+            .map(j => ({ name: j.name, status: j.status }))
+        );
+
+        if (deployJobs.length >= requiredDeployJobs.length) {
           const successDeploys = deployJobs.filter(j => j.status === 'success');
           if (successDeploys.length > 0) {
             deploySucceeded = true;
           }
+          console.log(
+            `[Pipeline ${pipeline.id}] All required deploy jobs completed. Total: ${deployJobs.length}/${requiredDeployJobs.length}`
+          );
           break;
         }
 
@@ -501,7 +638,7 @@ export class BuildProdHandler extends BaseHandler {
               .join('\n');
             await this.sendMessage(
               chatId,
-              `🎉 Deploy thành công cho \`${branchName}\`\n${links}\n✅ Task đã hoàn tất.`
+              `🎉 Deploy succeeded for \`${branchName}\`\n${links}\n✅ Task completed.`
             );
           }
         } catch {}
@@ -520,7 +657,7 @@ export class BuildProdHandler extends BaseHandler {
           for (const deployJob of failedDeploys) {
             await this.sendMessage(
               chatId,
-              `❌ Deploy thất bại: \`${deployJob.name}\` (status: \`${deployJob.status}\`)\n🔗 ${deployJob.web_url}`
+              `❌ Deploy failed: \`${deployJob.name}\` (status: \`${deployJob.status}\`)\n🔗 ${deployJob.web_url}`
             );
           }
         } catch {}
