@@ -392,12 +392,14 @@ export class BuildProdHandler extends BaseHandler {
             if (retriedJobNames.has(job.name)) {
               retriedJobNames.delete(job.name);
             }
+          }
 
-            // Check for downstream dependencies
+          // Check for downstream dependencies (Independent of notification)
+          if (job.status === 'success') {
             const targetJobName = dependencyMap[job.name];
             if (targetJobName) {
               const targetJob = jobs.find(j => j.name === targetJobName);
-              // Trigger if target exists, hasn't been triggered, and is in a state that might need manual intervention (like manual/skipped) or just created
+              // Trigger if target exists, hasn't been triggered, and is in a state that allows triggering
               if (
                 targetJob &&
                 !triggeredJobs.has(targetJob.id) &&
