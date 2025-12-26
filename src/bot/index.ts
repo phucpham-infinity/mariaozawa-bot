@@ -40,21 +40,58 @@ class TelegramBotService {
   }
 
   private setupErrorHandling(): void {
+    const isNetworkError = (error: any): boolean => {
+      return (
+        error?.code === 'ECONNRESET' ||
+        error?.code === 'ETIMEDOUT' ||
+        error?.message?.includes('ECONNRESET') ||
+        error?.message?.includes('socket hang up') ||
+        error?.message?.includes('timeout') ||
+        error?.message?.includes('EFATAL')
+      );
+    };
+
     this.bot.on('error', error => {
-      logger.error('Telegram Bot error:', error);
+      if (isNetworkError(error)) {
+        logger.warn('Telegram Bot network error (will retry):', error.message);
+      } else {
+        logger.error('Telegram Bot error:', error);
+      }
     });
 
     this.bot.on('polling_error', error => {
-      logger.error('Telegram Bot polling error:', error);
+      if (isNetworkError(error)) {
+        logger.warn(
+          'Telegram Bot polling network error (will retry automatically):',
+          error.message || error
+        );
+      } else {
+        logger.error('Telegram Bot polling error:', error);
+      }
     });
 
     process.on('unhandledRejection', (reason, promise) => {
-      logger.error('Unhandled Rejection at:', promise, 'reason:', reason);
+      const error = reason as any;
+      if (isNetworkError(error)) {
+        logger.warn(
+          'Unhandled Rejection (network error, continuing):',
+          error?.message || reason
+        );
+      } else {
+        logger.error('Unhandled Rejection at:', promise, 'reason:', reason);
+      }
     });
 
     process.on('uncaughtException', error => {
-      logger.error('Uncaught Exception:', error);
-      process.exit(1);
+      if (isNetworkError(error)) {
+        logger.warn(
+          'Uncaught Exception (network error, continuing):',
+          error.message
+        );
+      } else {
+        logger.error('Uncaught Exception:', error);
+        process.exit(1);
+      }
     });
   }
 
@@ -67,14 +104,15 @@ class TelegramBotService {
       // Wait longer to ensure cleanup
       await new Promise(resolve => setTimeout(resolve, 3000));
 
-      // Start polling with conflict resolution
+      // Start polling with conflict resolution and better error handling
       await this.bot.startPolling({
         restart: true,
         polling: {
           interval: 1000,
           autoStart: false,
           params: {
-            timeout: 10,
+            timeout: 30,
+            limit: 100,
           },
         },
       });
