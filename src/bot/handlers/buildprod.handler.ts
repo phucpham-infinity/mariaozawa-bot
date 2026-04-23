@@ -135,7 +135,7 @@ export class BuildProdHandler extends BaseHandler {
         return;
       }
 
-      if (data.startsWith('select_project_')) {
+      if (/^select_project_\d+$/.test(data)) {
         await this.handleProjectSelection(
           userId,
           chatId,
@@ -293,7 +293,7 @@ export class BuildProdHandler extends BaseHandler {
 
     try {
       await this.bot.editMessageText(
-        `🚀 Creating branch \`${branchName}\` from \`dev\`...`,
+        `🚀 Creating branch \`${branchName}\` from \`main\`...`,
         {
           chat_id: chatId,
           message_id: messageId,
@@ -305,7 +305,7 @@ export class BuildProdHandler extends BaseHandler {
       const newBranch = await gitlabService.createBranch(
         projectId,
         branchName,
-        'dev'
+        'main'
       );
 
       // Trigger new pipeline for created branch
@@ -313,7 +313,7 @@ export class BuildProdHandler extends BaseHandler {
         `✅ *Production Build Created Successfully!*\n\n` +
           `**Project:** ${session.selectedProject.name}\n` +
           `**Branch:** \`${branchName}\`\n` +
-          `**Created from:** \`dev\`\n` +
+          `**Created from:** \`main\`\n` +
           `**Commit:** \`${newBranch.commit.id.substring(0, 8)}\`\n\n` +
           `⏳ Triggering pipeline for \`${branchName}\`...`,
         {
@@ -614,7 +614,7 @@ export class BuildProdHandler extends BaseHandler {
           `✅ *Production Build & Deploy Succeeded!*\n\n` +
             `**Project:** ${session.selectedProject.name}\n` +
             `**Branch:** \`${branchName}\`\n` +
-            `**Created from:** \`dev\`\n` +
+            `**Created from:** \`main\`\n` +
             `${this.formatPipelineInfo(pipeline)}\n\n` +
             `🔗 [View Branch](${session.selectedProject.web_url}/-/tree/${branchName})`,
           {
