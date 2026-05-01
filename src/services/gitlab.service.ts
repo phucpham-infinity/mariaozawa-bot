@@ -190,11 +190,18 @@ class GitLabService {
     }
   }
 
-  async getPipelines(projectId: number, limit = 10): Promise<GitLabPipeline[]> {
+  async getPipelines(
+    projectId: number,
+    limit = 10,
+    ref?: string
+  ): Promise<GitLabPipeline[]> {
     try {
-      const response = await this.api.get(
-        `/projects/${projectId}/pipelines?per_page=${limit}`
-      );
+      const response = await this.api.get(`/projects/${projectId}/pipelines`, {
+        params: {
+          per_page: limit,
+          ref,
+        },
+      });
       return response.data;
     } catch (error) {
       logger.error(`Failed to fetch pipelines for project ${projectId}`, error);

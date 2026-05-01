@@ -9,6 +9,7 @@ interface SandboxSession {
   projects: GitLabProject[];
   selectedProject?: GitLabProject;
   branches?: GitLabBranch[];
+  searchText?: string;
 }
 
 export class BuildSandboxHandler extends BaseHandler {
@@ -103,6 +104,7 @@ export class BuildSandboxHandler extends BaseHandler {
       }
 
       session.branches = branches;
+      session.searchText = text;
 
       const keyboard = branches.map((branch, index) => [
         {
@@ -218,11 +220,17 @@ export class BuildSandboxHandler extends BaseHandler {
       return;
     }
 
+    if (!session.searchText) {
+      await this.sendError(chatId, 'Session expired. Please start again with `/build-sandbox`');
+      return;
+    }
+
     try {
       await this.triggerSandboxPipeline(
         chatId,
         selectedProject.id,
         selectedBranch.name,
+        `feature.${session.searchText}`,
         messageId
       );
       this.userSessions.delete(userId);
@@ -237,11 +245,12 @@ export class BuildSandboxHandler extends BaseHandler {
   private async triggerSandboxPipeline(
     chatId: number,
     projectId: number,
-    branchName: string,
+    sourceBranchName: string,
+    buildBranchName: string,
     messageId?: number
   ): Promise<void> {
     await this.bot.editMessageText(
-      `🧹 Recreating \`develop\` from \`${branchName}\`...`,
+      `🌿 Creating \`${buildBranchName}\` from \`${sourceBranchName}\`...`,
       {
         chat_id: chatId,
         message_id: messageId,
@@ -249,28 +258,18 @@ export class BuildSandboxHandler extends BaseHandler {
       }
     );
 
-    try {
-      await gitlabService.deleteBranch(projectId, 'develop');
-      await this.sendMessage(chatId, '✅ Deleted existing `develop` branch.');
-    } catch {
-      await this.sendMessage(
-        chatId,
-        '`develop` branch does not exist or cannot be deleted. Continuing...'
-      );
-    }
-
-    await gitlabService.createBranch(projectId, 'develop', branchName);
+    await gitlabService.createBranch(projectId, buildBranchName, sourceBranchName);
     await this.sendMessage(
       chatId,
-      `✅ Created \`develop\` branch from \`${branchName}\`.`
+      `✅ Created \`${buildBranchName}\` branch from \`${sourceBranchName}\`.`
     );
 
     await this.sendMessage(
       chatId,
-      `🚀 Triggering pipeline for project ${projectId} on \`develop\`...`
+      `🚀 Triggering pipeline for project ${projectId} on \`${buildBranchName}\`...`
     );
 
-    const pipeline = await gitlabService.triggerPipeline(projectId, 'develop');
+    const pipeline = await gitlabService.triggerPipeline(projectId, buildBranchName);
     await this.sendMessage(
       chatId,
       `✅ Pipeline created: #${pipeline.id} on \`${pipeline.ref}\`\n🔗 ${pipeline.web_url}`,
@@ -385,4 +384,5 @@ export class BuildSandboxHandler extends BaseHandler {
       await new Promise(r => setTimeout(r, 5000));
     }
   }
+
 }
