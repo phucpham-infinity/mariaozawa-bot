@@ -241,7 +241,7 @@ export class BuildSandboxHandler extends BaseHandler {
     messageId?: number
   ): Promise<void> {
     await this.bot.editMessageText(
-      `🚀 Triggering pipeline for project ${projectId} on \`${branchName}\`...`,
+      `🧹 Recreating \`develop\` from \`${branchName}\`...`,
       {
         chat_id: chatId,
         message_id: messageId,
@@ -249,7 +249,28 @@ export class BuildSandboxHandler extends BaseHandler {
       }
     );
 
-    const pipeline = await gitlabService.triggerPipeline(projectId, branchName);
+    try {
+      await gitlabService.deleteBranch(projectId, 'develop');
+      await this.sendMessage(chatId, '✅ Deleted existing `develop` branch.');
+    } catch {
+      await this.sendMessage(
+        chatId,
+        '`develop` branch does not exist or cannot be deleted. Continuing...'
+      );
+    }
+
+    await gitlabService.createBranch(projectId, 'develop', branchName);
+    await this.sendMessage(
+      chatId,
+      `✅ Created \`develop\` branch from \`${branchName}\`.`
+    );
+
+    await this.sendMessage(
+      chatId,
+      `🚀 Triggering pipeline for project ${projectId} on \`develop\`...`
+    );
+
+    const pipeline = await gitlabService.triggerPipeline(projectId, 'develop');
     await this.sendMessage(
       chatId,
       `✅ Pipeline created: #${pipeline.id} on \`${pipeline.ref}\`\n🔗 ${pipeline.web_url}`,
