@@ -19,7 +19,7 @@ export class BuildSandboxHandler extends BaseHandler {
   }
 
   register(): void {
-    this.bot.onText(/\/build-sandbox/, this.handleBuildSandbox.bind(this));
+    this.bot.onText(/\/build[-_]sandbox/, this.handleBuildSandbox.bind(this));
     this.bot.on('message', this.handleMessage.bind(this));
     this.bot.on('callback_query', this.handleCallback.bind(this));
   }

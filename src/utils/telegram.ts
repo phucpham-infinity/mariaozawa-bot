@@ -25,7 +25,7 @@ export async function setTelegramCommands(): Promise<void> {
         description: 'Run new pipeline on current dev branch',
       },
       {
-        command: 'build-sandbox',
+        command: 'build_sandbox',
         description: 'Run sandbox pipeline from selected branch',
       },
     ];

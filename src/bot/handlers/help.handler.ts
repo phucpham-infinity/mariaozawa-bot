@@ -25,6 +25,7 @@ Type /help to see all available commands.
 *Quick Start:*
 1. Use /build_dev
 2. Use /build_prod
+3. Use /build_sandbox
 Let's get started! 🚀
     `;
 
@@ -36,8 +37,9 @@ Let's get started! 🚀
     const helpMessage = `
 📚 *GitLab Bot Commands:*
 * Build:*
-• \`/build_dev\` - Create new release branch automatically
+• \`/build_dev\` - Run new pipeline on current dev branch
 • \`/build_prod\` - Create new release branch automatically
+• \`/build_sandbox\` - Run sandbox pipeline from selected branch
 *Note:* You need to provide your GitLab project ID, which you can find in your project settings or by using the /projects command.
     `;
 
