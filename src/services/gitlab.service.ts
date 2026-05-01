@@ -64,7 +64,7 @@ class GitLabService {
     }
   }
 
-  async getBranches(projectId: number): Promise<GitLabBranch[]> {
+  async getBranches(projectId: number, search = 'release.'): Promise<GitLabBranch[]> {
     try {
       const perPage = 10;
       let page = 1;
@@ -75,7 +75,7 @@ class GitLabService {
           params: {
             per_page: perPage,
             page,
-            search: 'release.',
+            search,
             sort: 'updated_desc',
           },
         }

@@ -7,6 +7,7 @@ import { GitLabHandler } from './handlers/gitlab.handler';
 import { HelpHandler } from './handlers/help.handler';
 import { BuildProdHandler } from './handlers/buildprod.handler';
 import { BuildDevHandler } from './handlers/builddev.handler';
+import { BuildSandboxHandler } from './handlers/buildsandbox.handler';
 
 class TelegramBotService {
   private bot: TelegramBot;
@@ -33,6 +34,7 @@ class TelegramBotService {
       new GitLabHandler(this.bot),
       new BuildProdHandler(this.bot),
       new BuildDevHandler(this.bot),
+      new BuildSandboxHandler(this.bot),
     ];
 
     this.handlers.forEach(handler => handler.register());

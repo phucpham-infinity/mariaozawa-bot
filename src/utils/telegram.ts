@@ -24,6 +24,10 @@ export async function setTelegramCommands(): Promise<void> {
         command: 'build_dev',
         description: 'Run new pipeline on current dev branch',
       },
+      {
+        command: 'build-sandbox',
+        description: 'Run sandbox pipeline from selected branch',
+      },
     ];
 
     const url = `https://api.telegram.org/bot${config.telegram.token}/setMyCommands`;

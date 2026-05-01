@@ -163,7 +163,9 @@ export class BuildDevHandler extends BaseHandler {
               j.name.toLowerCase().includes('docker')
           );
 
-        const manualJobs = jobs.filter(j => j.status === 'manual');
+        const manualJobs = jobs.filter(
+          j => j.status === 'manual' && j.name === 'deploy-on-dev-k8s'
+        );
 
         if (buildDocker && buildDocker.status === 'success') {
           for (const manualJob of manualJobs) {
