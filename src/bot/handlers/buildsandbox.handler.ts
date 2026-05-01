@@ -1,3 +1,4 @@
+import ShortUniqueId from 'short-unique-id';
 import TelegramBot from 'node-telegram-bot-api';
 import { BaseHandler } from './base.handler';
 import gitlabService from '@/services/gitlab.service';
@@ -249,8 +250,13 @@ export class BuildSandboxHandler extends BaseHandler {
     buildBranchName: string,
     messageId?: number
   ): Promise<void> {
+    const availableBranchName = await this.getAvailableBranchName(
+      projectId,
+      buildBranchName
+    );
+
     await this.bot.editMessageText(
-      `🌿 Creating \`${buildBranchName}\` from \`${sourceBranchName}\`...`,
+      `🌿 Creating \`${availableBranchName}\` from \`${sourceBranchName}\`...`,
       {
         chat_id: chatId,
         message_id: messageId,
@@ -258,18 +264,18 @@ export class BuildSandboxHandler extends BaseHandler {
       }
     );
 
-    await gitlabService.createBranch(projectId, buildBranchName, sourceBranchName);
+    await gitlabService.createBranch(projectId, availableBranchName, sourceBranchName);
     await this.sendMessage(
       chatId,
-      `✅ Created \`${buildBranchName}\` branch from \`${sourceBranchName}\`.`
+      `✅ Created \`${availableBranchName}\` branch from \`${sourceBranchName}\`.`
     );
 
     await this.sendMessage(
       chatId,
-      `🚀 Triggering pipeline for project ${projectId} on \`${buildBranchName}\`...`
+      `🚀 Triggering pipeline for project ${projectId} on \`${availableBranchName}\`...`
     );
 
-    const pipeline = await gitlabService.triggerPipeline(projectId, buildBranchName);
+    const pipeline = await gitlabService.triggerPipeline(projectId, availableBranchName);
     await this.sendMessage(
       chatId,
       `✅ Pipeline created: #${pipeline.id} on \`${pipeline.ref}\`\n🔗 ${pipeline.web_url}`,
@@ -385,4 +391,23 @@ export class BuildSandboxHandler extends BaseHandler {
     }
   }
 
+  private async getAvailableBranchName(
+    projectId: number,
+    baseBranchName: string
+  ): Promise<string> {
+    const branches = await gitlabService.getBranches(projectId, baseBranchName);
+    const branchNames = new Set(branches.map(branch => branch.name));
+
+    if (!branchNames.has(baseBranchName)) {
+      return baseBranchName;
+    }
+
+    const uid = new ShortUniqueId({ length: 4 });
+    let branchName = `${baseBranchName}-${uid.rnd()}`;
+    while (branchNames.has(branchName)) {
+      branchName = `${baseBranchName}-${uid.rnd()}`;
+    }
+
+    return branchName;
+  }
 }
