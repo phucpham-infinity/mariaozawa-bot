@@ -216,12 +216,7 @@ export class BuildSandboxHandler extends BaseHandler {
     const selectedProject = session?.selectedProject;
     const selectedBranch = session?.branches?.[branchIndex];
 
-    if (!session || !selectedProject || !selectedBranch) {
-      await this.sendError(chatId, 'Session expired. Please start again with `/build-sandbox`');
-      return;
-    }
-
-    if (!session.searchText) {
+    if (!session || !selectedProject || !selectedBranch || !session.searchText) {
       await this.sendError(chatId, 'Session expired. Please start again with `/build-sandbox`');
       return;
     }
@@ -276,114 +271,86 @@ export class BuildSandboxHandler extends BaseHandler {
     );
 
     const pipeline = await gitlabService.triggerPipeline(projectId, availableBranchName);
+
+    const cancelKeyboard = {
+      reply_markup: {
+        inline_keyboard: [
+          [
+            {
+              text: '🛑 Cancel pipeline',
+              callback_data: `cancel_pipeline_${projectId}_${pipeline.id}`,
+            },
+          ],
+        ],
+      },
+    };
+
     await this.sendMessage(
       chatId,
       `✅ Pipeline created: #${pipeline.id} on \`${pipeline.ref}\`\n🔗 ${pipeline.web_url}`,
-      {
-        reply_markup: {
-          inline_keyboard: [
-            [
-              {
-                text: '🛑 Cancel pipeline',
-                callback_data: `cancel_pipeline_${projectId}_${pipeline.id}`,
-              },
-            ],
-          ],
-        },
-      }
+      cancelKeyboard
     );
 
     const deadline = Date.now() + 20 * 60 * 1000;
-    const done = new Set(['success', 'failed', 'canceled', 'skipped', 'manual']);
+    const terminalStatuses = new Set(['success', 'failed', 'canceled', 'skipped']);
     const notified = new Set<string>();
-    const triggeredJobs = new Set<number>();
+    let deployTriggered = false;
 
     while (Date.now() < deadline) {
       const jobs = await gitlabService.getPipelineJobs(projectId, pipeline.id);
 
+      // Notify completed jobs
       for (const job of jobs) {
         if (job.status === 'success' && !notified.has(job.name)) {
           notified.add(job.name);
           await this.sendMessage(
             chatId,
-            `ℹ️ Job \`${job.name}\` finished with status: \`success\`\n🔗 ${job.web_url}`,
-            {
-              reply_markup: {
-                inline_keyboard: [
-                  [
-                    {
-                      text: '🛑 Cancel pipeline',
-                      callback_data: `cancel_pipeline_${projectId}_${pipeline.id}`,
-                    },
-                  ],
-                ],
-              },
-            }
+            `ℹ️ Job \`${job.name}\` finished: \`success\`\n🔗 ${job.web_url}`,
+            cancelKeyboard
           );
         }
       }
 
-      const buildDocker =
-        jobs.find(
-          j => j.stage === 'build' && j.name.toLowerCase().includes('docker')
-        ) ||
-        jobs.find(
-          j =>
-            j.name.toLowerCase().includes('build') &&
-            j.name.toLowerCase().includes('docker')
+      // Auto-trigger deploy after build-docker-sandbox succeeds
+      if (!deployTriggered) {
+        const buildDocker = jobs.find(j => j.name === 'build-docker-sandbox');
+        const deployJob = jobs.find(
+          j => j.name === 'deploy-on-dev-sandbox-k8s' && j.status === 'manual'
         );
 
-      const manualJobs = jobs.filter(
-        j => j.status === 'manual' && j.name === 'deploy-on-dev-sandbox-k8s'
-      );
-
-      if (buildDocker && buildDocker.status === 'success') {
-        for (const manualJob of manualJobs) {
-          if (!triggeredJobs.has(manualJob.id)) {
+        if (buildDocker?.status === 'success' && deployJob) {
+          await this.sendMessage(
+            chatId,
+            `▶️ Triggering manual job \`${deployJob.name}\`...`
+          );
+          try {
+            await gitlabService.playJob(projectId, deployJob.id);
             await this.sendMessage(
               chatId,
-              `▶️ Triggering manual job \`${manualJob.name}\`...`
+              `✅ Manual job \`${deployJob.name}\` triggered successfully!`
             );
-            try {
-              await gitlabService.playJob(projectId, manualJob.id);
-              await this.sendMessage(
-                chatId,
-                `✅ Manual job \`${manualJob.name}\` triggered successfully!`
-              );
-              triggeredJobs.add(manualJob.id);
-            } catch (error) {
-              await this.sendMessage(
-                chatId,
-                `❌ Failed to trigger manual job \`${manualJob.name}\`: ${error}`
-              );
-            }
+            deployTriggered = true;
+          } catch (error) {
+            await this.sendMessage(
+              chatId,
+              `❌ Failed to trigger manual job \`${deployJob.name}\`: ${error}`
+            );
           }
         }
       }
 
-      const deployJobs = jobs.filter(
-        j =>
-          j.stage === 'deploy' &&
-          j.name === 'deploy-on-dev-sandbox-k8s' &&
-          done.has(j.status)
+      // Check deploy result
+      const deployResult = jobs.find(
+        j => j.name === 'deploy-on-dev-sandbox-k8s' && terminalStatuses.has(j.status)
       );
 
-      if (deployJobs.length > 0) {
-        for (const deployJob of deployJobs) {
-          if (deployJob.status === 'success') {
-            await this.sendMessage(
-              chatId,
-              `🎉 Deploy thành công: \`${deployJob.name}\`\n🔗 ${deployJob.web_url}`
-            );
-          } else if (
-            ['failed', 'canceled', 'skipped'].includes(deployJob.status)
-          ) {
-            await this.sendMessage(
-              chatId,
-              `❌ Deploy thất bại: \`${deployJob.name}\` (status: \`${deployJob.status}\`)\n🔗 ${deployJob.web_url}`
-            );
-          }
-        }
+      if (deployResult) {
+        const emoji = deployResult.status === 'success' ? '🎉' : '❌';
+        const label = deployResult.status === 'success' ? 'Deploy thành công' : 'Deploy thất bại';
+        await this.sendMessage(
+          chatId,
+          `${emoji} ${label}: \`${deployResult.name}\` (status: \`${deployResult.status}\`)\n🔗 ${deployResult.web_url}`
+        );
         break;
       }
 
