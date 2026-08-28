@@ -15,6 +15,8 @@ interface ReleaseInfo {
   version: number;
 }
 
+const PROJECTS_PER_PAGE = 10;
+
 export class BuildProdHandler extends BaseHandler {
   private userSessions: Map<number, any> = new Map();
 
@@ -58,37 +60,18 @@ export class BuildProdHandler extends BaseHandler {
         return;
       }
 
-      // Create inline keyboard for project selection
-      const keyboard = targetProjects.map(project => [
-        {
-          text: `${project.name} (${project.path})`,
-          callback_data: `select_project_${project.id}`,
-        },
-      ]);
-
-      keyboard.push([
-        {
-          text: '❌ Cancel',
-          callback_data: 'cancel_build_prod',
-        },
-      ]);
-
       // Store user session
       this.userSessions.set(userId, {
         step: 'project_selection',
         projects: targetProjects,
         chatId,
+        projectPage: 0,
       });
 
-      await this.bot.sendMessage(
+      await this.sendProjectSelection(
         chatId,
-        '📋 *Select a project for production build:*',
-        {
-          parse_mode: 'Markdown',
-          reply_markup: {
-            inline_keyboard: keyboard,
-          },
-        }
+        userId,
+        '📋 *Select a project for production build:*'
       );
     } catch (error) {
       logger.error('Error in build-prod command', error);
@@ -135,6 +118,23 @@ export class BuildProdHandler extends BaseHandler {
         return;
       }
 
+      if (/^project_page_prod_\d+$/.test(data)) {
+        const session = this.userSessions.get(userId);
+        if (!session) {
+          await this.sendError(chatId, 'Session expired. Please start again with `/build_prod`');
+          return;
+        }
+
+        session.projectPage = parseInt(data.replace('project_page_prod_', ''), 10);
+        await this.sendProjectSelection(
+          chatId,
+          userId,
+          '📋 *Select a project for production build:*',
+          query.message?.message_id
+        );
+        return;
+      }
+
       if (/^select_project_\d+$/.test(data)) {
         await this.handleProjectSelection(
           userId,
@@ -156,6 +156,51 @@ export class BuildProdHandler extends BaseHandler {
         chatId,
         'An error occurred while processing your request'
       );
+    }
+  }
+
+  private async sendProjectSelection(
+    chatId: number,
+    userId: number,
+    text: string,
+    messageId?: number
+  ): Promise<void> {
+    const session = this.userSessions.get(userId);
+    if (!session) return;
+
+    const page = session.projectPage || 0;
+    const pageCount = Math.ceil(session.projects.length / PROJECTS_PER_PAGE);
+    const start = page * PROJECTS_PER_PAGE;
+    const pageProjects = session.projects.slice(start, start + PROJECTS_PER_PAGE);
+    const keyboard = pageProjects.map((project: any) => [
+      {
+        text: `${project.name} (${project.path})`,
+        callback_data: `select_project_${project.id}`,
+      },
+    ]);
+
+    const navigation = [];
+    if (page > 0) {
+      navigation.push({ text: '⬅️ Trước', callback_data: `project_page_prod_${page - 1}` });
+    }
+    if (page < pageCount - 1) {
+      navigation.push({ text: 'Sau ➡️', callback_data: `project_page_prod_${page + 1}` });
+    }
+    if (navigation.length > 0) keyboard.push(navigation);
+    keyboard.push([{ text: '❌ Cancel', callback_data: 'cancel_build_prod' }]);
+
+    const options = {
+      parse_mode: 'Markdown' as const,
+      reply_markup: { inline_keyboard: keyboard },
+    };
+
+    if (messageId) {
+      await this.bot.editMessageText(
+        `${text}\n\n_Page ${page + 1}/${pageCount}_`,
+        { chat_id: chatId, message_id: messageId, ...options }
+      );
+    } else {
+      await this.bot.sendMessage(chatId, `${text}\n\n_Page ${page + 1}/${pageCount}_`, options);
     }
   }
 

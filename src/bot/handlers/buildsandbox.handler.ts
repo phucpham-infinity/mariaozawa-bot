@@ -7,11 +7,14 @@ import { GitLabBranch, GitLabProject } from '@/types';
 interface SandboxSession {
   step: 'project_selection' | 'branch_search';
   chatId: number;
+  projectPage?: number;
   projects: GitLabProject[];
   selectedProject?: GitLabProject;
   branches?: GitLabBranch[];
   searchText?: string;
 }
+
+const PROJECTS_PER_PAGE = 10;
 
 export class BuildSandboxHandler extends BaseHandler {
   private userSessions: Map<number, SandboxSession> = new Map();
@@ -48,29 +51,17 @@ export class BuildSandboxHandler extends BaseHandler {
         return;
       }
 
-      const keyboard = target.map(p => [
-        {
-          text: `${p.name} (${p.path})`,
-          callback_data: `select_project_sandbox_${p.id}`,
-        },
-      ]);
-      keyboard.push([
-        { text: '❌ Cancel', callback_data: 'cancel_build_sandbox' },
-      ]);
-
       this.userSessions.set(userId, {
         step: 'project_selection',
         projects: target,
         chatId,
+        projectPage: 0,
       });
 
-      await this.bot.sendMessage(
+      await this.sendProjectSelection(
         chatId,
-        '📋 *Select a frontend project to build sandbox:*',
-        {
-          parse_mode: 'Markdown',
-          reply_markup: { inline_keyboard: keyboard },
-        }
+        userId,
+        '📋 *Select a frontend project to build sandbox:*'
       );
     } catch {
       await this.sendError(chatId, 'Failed to fetch projects');
@@ -146,6 +137,23 @@ export class BuildSandboxHandler extends BaseHandler {
         return;
       }
 
+      if (/^project_page_sandbox_\d+$/.test(data)) {
+        const session = this.userSessions.get(userId);
+        if (!session) {
+          await this.sendError(chatId, 'Session expired. Please start again with `/build-sandbox`');
+          return;
+        }
+
+        session.projectPage = parseInt(data.replace('project_page_sandbox_', ''), 10);
+        await this.sendProjectSelection(
+          chatId,
+          userId,
+          '📋 *Select a frontend project to build sandbox:*',
+          query.message?.message_id
+        );
+        return;
+      }
+
       if (data.startsWith('select_project_sandbox_')) {
         await this.handleProjectSelection(
           userId,
@@ -169,6 +177,54 @@ export class BuildSandboxHandler extends BaseHandler {
         chatId,
         'An error occurred while processing your request'
       );
+    }
+  }
+
+  private async sendProjectSelection(
+    chatId: number,
+    userId: number,
+    text: string,
+    messageId?: number
+  ): Promise<void> {
+    const session = this.userSessions.get(userId);
+    if (!session) return;
+
+    const pageCount = Math.ceil(session.projects.length / PROJECTS_PER_PAGE);
+    const page = session.projectPage || 0;
+    const pageProjects = session.projects.slice(
+      page * PROJECTS_PER_PAGE,
+      (page + 1) * PROJECTS_PER_PAGE
+    );
+    const keyboard = pageProjects.map(project => [
+      {
+        text: `${project.name} (${project.path})`,
+        callback_data: `select_project_sandbox_${project.id}`,
+      },
+    ]);
+    const navigation = [];
+    if (page > 0) {
+      navigation.push({ text: '⬅️ Trước', callback_data: `project_page_sandbox_${page - 1}` });
+    }
+    if (page < pageCount - 1) {
+      navigation.push({ text: 'Sau ➡️', callback_data: `project_page_sandbox_${page + 1}` });
+    }
+    if (navigation.length > 0) keyboard.push(navigation);
+    keyboard.push([{ text: '❌ Cancel', callback_data: 'cancel_build_sandbox' }]);
+
+    const options = {
+      parse_mode: 'Markdown' as const,
+      reply_markup: { inline_keyboard: keyboard },
+    };
+    const pageLabel = `\n\n_Page ${page + 1}/${pageCount}_`;
+
+    if (messageId) {
+      await this.bot.editMessageText(`${text}${pageLabel}`, {
+        chat_id: chatId,
+        message_id: messageId,
+        ...options,
+      });
+    } else {
+      await this.bot.sendMessage(chatId, `${text}${pageLabel}`, options);
     }
   }
 

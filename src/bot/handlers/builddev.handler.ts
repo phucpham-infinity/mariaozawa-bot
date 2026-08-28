@@ -2,7 +2,10 @@ import TelegramBot from 'node-telegram-bot-api';
 import { BaseHandler } from './base.handler';
 import gitlabService from '@/services/gitlab.service';
 
+const PROJECTS_PER_PAGE = 10;
+
 export class BuildDevHandler extends BaseHandler {
+  private userSessions: Map<number, { projects: any[]; projectPage: number }> = new Map();
   constructor(bot: TelegramBot) {
     super(bot);
   }
@@ -27,21 +30,15 @@ export class BuildDevHandler extends BaseHandler {
         return;
       }
 
-      const keyboard = target.map(p => [
-        {
-          text: `${p.name} (${p.path})`,
-          callback_data: `select_project_dev_${p.id}`,
-        },
-      ]);
-      keyboard.push([{ text: '❌ Cancel', callback_data: 'cancel_build_dev' }]);
+      this.userSessions.set(msg.from?.id || chatId, {
+        projects: target,
+        projectPage: 0,
+      });
 
-      await this.bot.sendMessage(
+      await this.sendProjectSelection(
         chatId,
-        '📋 *Select a frontend project to build dev:*',
-        {
-          parse_mode: 'Markdown',
-          reply_markup: { inline_keyboard: keyboard },
-        }
+        msg.from?.id || chatId,
+        '📋 *Select a frontend project to build dev:*'
       );
     } catch {
       await this.sendError(chatId, 'Failed to fetch projects');
@@ -52,6 +49,7 @@ export class BuildDevHandler extends BaseHandler {
     query: TelegramBot.CallbackQuery
   ): Promise<void> {
     const chatId = query.message?.chat.id;
+    const userId = query.from.id;
     const data = query.data;
     if (!chatId || !data) return;
 
@@ -59,10 +57,28 @@ export class BuildDevHandler extends BaseHandler {
       await this.bot.answerCallbackQuery(query.id);
 
       if (data === 'cancel_build_dev') {
+        this.userSessions.delete(userId);
         await this.bot.editMessageText('❌ Build dev cancelled.', {
           chat_id: chatId,
           message_id: query.message?.message_id,
         });
+        return;
+      }
+
+      if (/^project_page_dev_\d+$/.test(data)) {
+        const session = this.userSessions.get(userId);
+        if (!session) {
+          await this.sendError(chatId, 'Session expired. Please start again with `/build_dev`');
+          return;
+        }
+
+        session.projectPage = parseInt(data.replace('project_page_dev_', ''), 10);
+        await this.sendProjectSelection(
+          chatId,
+          userId,
+          '📋 *Select a frontend project to build dev:*',
+          query.message?.message_id
+        );
         return;
       }
 
@@ -78,6 +94,54 @@ export class BuildDevHandler extends BaseHandler {
         chatId,
         'An error occurred while processing your request'
       );
+    }
+  }
+
+  private async sendProjectSelection(
+    chatId: number,
+    userId: number,
+    text: string,
+    messageId?: number
+  ): Promise<void> {
+    const session = this.userSessions.get(userId);
+    if (!session) return;
+
+    const pageCount = Math.ceil(session.projects.length / PROJECTS_PER_PAGE);
+    const page = session.projectPage;
+    const pageProjects = session.projects.slice(
+      page * PROJECTS_PER_PAGE,
+      (page + 1) * PROJECTS_PER_PAGE
+    );
+    const keyboard = pageProjects.map(project => [
+      {
+        text: `${project.name} (${project.path})`,
+        callback_data: `select_project_dev_${project.id}`,
+      },
+    ]);
+    const navigation = [];
+    if (page > 0) {
+      navigation.push({ text: '⬅️ Trước', callback_data: `project_page_dev_${page - 1}` });
+    }
+    if (page < pageCount - 1) {
+      navigation.push({ text: 'Sau ➡️', callback_data: `project_page_dev_${page + 1}` });
+    }
+    if (navigation.length > 0) keyboard.push(navigation);
+    keyboard.push([{ text: '❌ Cancel', callback_data: 'cancel_build_dev' }]);
+
+    const options = {
+      parse_mode: 'Markdown' as const,
+      reply_markup: { inline_keyboard: keyboard },
+    };
+    const pageLabel = `\n\n_Page ${page + 1}/${pageCount}_`;
+
+    if (messageId) {
+      await this.bot.editMessageText(`${text}${pageLabel}`, {
+        chat_id: chatId,
+        message_id: messageId,
+        ...options,
+      });
+    } else {
+      await this.bot.sendMessage(chatId, `${text}${pageLabel}`, options);
     }
   }
 
