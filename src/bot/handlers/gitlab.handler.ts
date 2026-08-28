@@ -47,18 +47,12 @@ export class GitLabHandler extends BaseHandler {
       }
 
       const projectList = projects
-        .slice(0, 10)
         .map(
           (project, index) => `${index + 1}. ${this.formatProjectInfo(project)}`
         )
         .join('\n\n');
 
-      let message = `📋 *Your GitLab Projects:*\n\n${projectList}`;
-
-      if (projects.length > 10) {
-        message += `\n\n_Showing first 10 of ${projects.length} projects_`;
-      }
-
+      const message = `📋 *Your GitLab Projects:*\n\n${projectList}`;
       await this.sendMessage(chatId, message);
     } catch (error) {
       logger.error('Error fetching projects', error);

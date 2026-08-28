@@ -46,8 +46,26 @@ class GitLabService {
 
   async getProjects(): Promise<GitLabProject[]> {
     try {
-      const response = await this.api.get('/projects?membership=true');
-      return response.data;
+      const perPage = 100;
+      let page = 1;
+      const projects: GitLabProject[] = [];
+
+      while (true) {
+        const response = await this.api.get('/projects', {
+          params: {
+            membership: true,
+            per_page: perPage,
+            page,
+          },
+        });
+        const pageProjects: GitLabProject[] = response.data;
+        projects.push(...pageProjects);
+
+        if (pageProjects.length < perPage) break;
+        page += 1;
+      }
+
+      return projects;
     } catch (error) {
       logger.error('Failed to fetch projects', error);
       throw new Error('Unable to fetch GitLab projects');

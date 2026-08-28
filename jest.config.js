@@ -21,7 +21,7 @@ module.exports = {
         'html',
         'cobertura'
     ],
-    moduleNameMapping: {
+    moduleNameMapper: {
         '^@/(.*)$': '<rootDir>/src/$1',
     },
     setupFilesAfterEnv: ['<rootDir>/tests/setup.ts'],
