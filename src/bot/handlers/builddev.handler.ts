@@ -20,7 +20,13 @@ export class BuildDevHandler extends BaseHandler {
     try {
       await this.sendMessage(chatId, '🔍 Fetching projects...');
       const projects = await gitlabService.getProjects();
-      const target = projects.filter(p => p.path.toLowerCase().includes('yl'));
+      const target = projects
+        .filter(p => p.path.toLowerCase().includes('yl'))
+        .sort((a, b) => {
+          if (a.path === 'yl-frontend') return -1;
+          if (b.path === 'yl-frontend') return 1;
+          return a.name.localeCompare(b.name);
+        });
 
       if (target.length === 0) {
         await this.sendError(

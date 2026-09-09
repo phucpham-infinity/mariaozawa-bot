@@ -48,9 +48,13 @@ export class BuildProdHandler extends BaseHandler {
       const projects = await gitlabService.getProjects();
 
       // Filter for yourloot/frontend or similar projects
-      const targetProjects = projects.filter(project =>
-        project.name.toLowerCase().includes('yl')
-      );
+      const targetProjects = projects
+        .filter(project => project.name.toLowerCase().includes('yl'))
+        .sort((a, b) => {
+          if (a.path === 'yl-frontend') return -1;
+          if (b.path === 'yl-frontend') return 1;
+          return a.name.localeCompare(b.name);
+        });
 
       if (targetProjects.length === 0) {
         await this.sendError(
