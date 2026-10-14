@@ -209,7 +209,7 @@ export class BuildSandboxHandler extends BaseHandler {
     ]);
     const navigation = [];
     if (page > 0) {
-      navigation.push({ text: '⬅️ Trước', callback_data: `project_page_sandbox_${page - 1}` });
+      navigation.push({ text: '⬅️ Previous', callback_data: `project_page_sandbox_${page - 1}` });
     }
     if (page < pageCount - 1) {
       navigation.push({ text: 'Sau ➡️', callback_data: `project_page_sandbox_${page + 1}` });
@@ -408,7 +408,7 @@ export class BuildSandboxHandler extends BaseHandler {
 
       if (deployResult) {
         const emoji = deployResult.status === 'success' ? '🎉' : '❌';
-        const label = deployResult.status === 'success' ? 'Deploy thành công' : 'Deploy thất bại';
+        const label = deployResult.status === 'success' ? 'Deploy succeeded' : 'Deploy failed';
         await this.sendMessage(
           chatId,
           `${emoji} ${label}: \`${deployResult.name}\` (status: \`${deployResult.status}\`)\n🔗 ${deployResult.web_url}`

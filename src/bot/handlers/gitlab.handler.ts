@@ -40,7 +40,7 @@ export class GitLabHandler extends BaseHandler {
     if (!userId) return;
 
     this.approvalSessions.set(userId, msg.chat.id);
-    await this.sendMessage(msg.chat.id, '🔗 Vui lòng dán link GitLab merge request cần approve.');
+    await this.sendMessage(msg.chat.id, '🔗 Please paste the GitLab merge request link to approve.');
   }
 
   private async handleApproveMessage(msg: TelegramBot.Message): Promise<void> {
@@ -52,11 +52,11 @@ export class GitLabHandler extends BaseHandler {
     this.approvalSessions.delete(userId);
     const tokens = config.gitlab.approvalTokens.filter(item => item.token);
     if (tokens.length === 0) {
-      await this.sendError(chatId, 'Chưa cấu hình token GitLab để approve.');
+      await this.sendError(chatId, 'No GitLab approval tokens are configured.');
       return;
     }
 
-    await this.sendMessage(chatId, '⏳ Đang approve merge request bằng các tài khoản đã cấu hình...');
+    await this.sendMessage(chatId, '⏳ Approving the merge request with all configured accounts...');
     const results = await Promise.all(
       tokens.map(async item => {
         try {
@@ -69,7 +69,7 @@ export class GitLabHandler extends BaseHandler {
       })
     );
 
-    await this.sendMessage(chatId, `*Kết quả approve:*\n${results.join('\n')}`);
+    await this.sendMessage(chatId, `*Approval results:*\n${results.join('\n')}`);
   }
 
   private async handleProjects(msg: TelegramBot.Message): Promise<void> {

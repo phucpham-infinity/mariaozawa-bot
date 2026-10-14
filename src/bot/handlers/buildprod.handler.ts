@@ -185,7 +185,7 @@ export class BuildProdHandler extends BaseHandler {
 
     const navigation = [];
     if (page > 0) {
-      navigation.push({ text: '⬅️ Trước', callback_data: `project_page_prod_${page - 1}` });
+      navigation.push({ text: '⬅️ Previous', callback_data: `project_page_prod_${page - 1}` });
     }
     if (page < pageCount - 1) {
       navigation.push({ text: 'Sau ➡️', callback_data: `project_page_prod_${page + 1}` });

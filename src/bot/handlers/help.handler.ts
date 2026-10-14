@@ -22,6 +22,9 @@ This bot helps you manage your GitLab projects directly from Telegram.
 
 Type /help to see all available commands.
 
+*GitLab Commands:*
+• \`/approve_pr\` - Approve a merge request with all configured GitLab accounts
+
 *Quick Start:*
 1. Use /build_dev
 2. Use /build_prod
