@@ -16,7 +16,7 @@ export async function setTelegramCommands(): Promise<void> {
   try {
     const commands = [
       { command: 'start', description: 'Start the bot' },
-      { command: 'approve-pr', description: 'Approve a GitLab merge request' },
+      { command: 'approve_pr', description: 'Approve a GitLab merge request' },
       {
         command: 'build_prod',
         description: 'Create new release branch automatically',

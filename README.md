@@ -71,6 +71,9 @@ ALLOWED_USERS=user1,user2,user3
 - `/create_branch <project_id> <branch_name> [from_branch]` - Create a new branch
 - `/delete_branch <project_id> <branch_name>` - Delete a branch
 
+### Merge Request Management
+- `/approve_pr` - Approve a GitLab merge request with all configured accounts
+
 ### Pipeline Management
 - `/trigger_pipeline <project_id> [branch]` - Trigger a new pipeline
 - `/pipelines <project_id>` - List recent pipelines
