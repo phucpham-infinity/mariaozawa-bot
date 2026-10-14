@@ -55,6 +55,7 @@ export interface Config {
   gitlab: {
     apiToken: string;
     baseUrl: string;
+    approvalTokens: { name: string; token: string }[];
   };
   server: {
     port: number;

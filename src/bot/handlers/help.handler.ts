@@ -36,6 +36,8 @@ Let's get started! 🚀
     const chatId = msg.chat.id;
     const helpMessage = `
 📚 *GitLab Bot Commands:*
+* GitLab:*
+• \`/approve-pr\` - Approve a merge request with all configured GitLab accounts
 * Build:*
 • \`/build_dev\` - Run new pipeline on current dev branch
 • \`/build_prod\` - Create new release branch automatically

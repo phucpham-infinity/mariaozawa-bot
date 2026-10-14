@@ -262,6 +262,48 @@ class GitLabService {
       throw new Error(`Unable to cancel pipeline ${pipelineId}`);
     }
   }
+
+  async approveMergeRequest(
+    mergeRequestUrl: string,
+    token: string
+  ): Promise<void> {
+    try {
+      const url = new URL(mergeRequestUrl);
+      const baseUrl = new URL(config.gitlab.baseUrl);
+      const marker = '/-/merge_requests/';
+      const markerIndex = url.pathname.indexOf(marker);
+      const mergeRequestIid = markerIndex >= 0
+        ? url.pathname.slice(markerIndex + marker.length).split('/')[0]
+        : '';
+      const projectPath = markerIndex >= 0
+        ? url.pathname.slice(1, markerIndex)
+        : '';
+
+      if (
+        url.origin !== baseUrl.origin ||
+        !projectPath ||
+        !/^\d+$/.test(mergeRequestIid)
+      ) {
+        throw new Error('Invalid GitLab merge request URL');
+      }
+
+      await axios.post(
+        `${config.gitlab.baseUrl}/projects/${encodeURIComponent(projectPath)}/merge_requests/${mergeRequestIid}/approve`,
+        {},
+        {
+          headers: { 'Private-Token': token },
+          timeout: 10000,
+          maxRedirects: 0,
+        }
+      );
+    } catch (error) {
+      const status = (error as { response?: { status?: number } }).response?.status;
+      if (error instanceof Error && !status && error.message === 'Invalid GitLab merge request URL') {
+        throw error;
+      }
+      throw new Error(status ? `GitLab HTTP ${status}` : 'Unable to approve merge request (invalid URL or connection error)');
+    }
+  }
 }
 
 export default new GitLabService();

@@ -11,6 +11,12 @@ const config: Config = {
   gitlab: {
     apiToken: process.env.GITLAB_API_TOKEN || '',
     baseUrl: process.env.GITLAB_BASE_URL || 'https://gitlab.com/api/v4',
+    approvalTokens: [
+      { name: 'GITLAB_API_TOKEN', token: process.env.GITLAB_API_TOKEN || '' },
+      { name: 'GITLAB_API_TOKEN_TUAN', token: process.env.GITLAB_API_TOKEN_TUAN || '' },
+      { name: 'GITLAB_API_TOKEN_BAO', token: process.env.GITLAB_API_TOKEN_BAO || '' },
+      { name: 'GITLAB_API_TOKEN_NGUYEN', token: process.env.GITLAB_API_TOKEN_NGUYEN || '' },
+    ],
   },
   server: {
     port: parseInt(process.env.PORT || '3000', 10),

@@ -1,14 +1,19 @@
 import TelegramBot from 'node-telegram-bot-api';
 import { BaseHandler } from './base.handler';
 import gitlabService from '@/services/gitlab.service';
+import config from '@/config';
 import logger from '@/utils/logger';
 
 export class GitLabHandler extends BaseHandler {
+  private approvalSessions = new Map<number, number>();
+
   constructor(bot: TelegramBot) {
     super(bot);
   }
 
   register(): void {
+    this.bot.onText(/\/approve[-_]pr/, this.handleApprovePr.bind(this));
+    this.bot.on('message', this.handleApproveMessage.bind(this));
     this.bot.onText(/\/projects/, this.handleProjects.bind(this));
     this.bot.onText(/\/branches (.+)/, this.handleBranches.bind(this));
     this.bot.onText(
@@ -28,6 +33,43 @@ export class GitLabHandler extends BaseHandler {
       /\/pipeline_status (.+) (.+)/,
       this.handlePipelineStatus.bind(this)
     );
+  }
+
+  private async handleApprovePr(msg: TelegramBot.Message): Promise<void> {
+    const userId = msg.from?.id;
+    if (!userId) return;
+
+    this.approvalSessions.set(userId, msg.chat.id);
+    await this.sendMessage(msg.chat.id, '🔗 Vui lòng dán link GitLab merge request cần approve.');
+  }
+
+  private async handleApproveMessage(msg: TelegramBot.Message): Promise<void> {
+    const userId = msg.from?.id;
+    const text = msg.text?.trim();
+    const chatId = msg.chat.id;
+    if (!userId || !text || text.startsWith('/') || !this.approvalSessions.has(userId)) return;
+
+    this.approvalSessions.delete(userId);
+    const tokens = config.gitlab.approvalTokens.filter(item => item.token);
+    if (tokens.length === 0) {
+      await this.sendError(chatId, 'Chưa cấu hình token GitLab để approve.');
+      return;
+    }
+
+    await this.sendMessage(chatId, '⏳ Đang approve merge request bằng các tài khoản đã cấu hình...');
+    const results = await Promise.all(
+      tokens.map(async item => {
+        try {
+          await gitlabService.approveMergeRequest(text, item.token);
+          return `✅ ${item.name}: approved`;
+        } catch (error) {
+          logger.error(`Error approving merge request with ${item.name}`, error);
+          return `❌ ${item.name}: failed`;
+        }
+      })
+    );
+
+    await this.sendMessage(chatId, `*Kết quả approve:*\n${results.join('\n')}`);
   }
 
   private async handleProjects(msg: TelegramBot.Message): Promise<void> {
